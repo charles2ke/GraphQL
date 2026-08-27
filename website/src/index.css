@@ -1,0 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap');
+
+:root {
+  font-family: 'DM Sans', sans-serif;
+  color: #183630;
+  background: #f8f6ef;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button { font: inherit; }

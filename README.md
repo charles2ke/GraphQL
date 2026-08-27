@@ -49,6 +49,23 @@ environment variable):
 Opening the GraphQL endpoint in a browser loads the Apollo Sandbox, where you can
 explore the schema and run the operations below.
 
+## Learning website
+
+The React learning website includes a GraphQL primer, practical tips, and an
+interactive API Explorer that runs requests against this service.
+
+```bash
+cd website
+npm install
+npm run dev
+```
+
+Keep the API server running on port `4000`, then open the URL printed by Vite
+(normally <http://localhost:5173>). The API Explorer is available at
+`/#explorer`. During development, Vite proxies `/graphql` requests to the local
+API. To target a different API, start Vite with `VITE_GRAPHQL_URL` set to its
+GraphQL endpoint.
+
 ## Tests
 
 ```bash
