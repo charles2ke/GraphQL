@@ -1,16 +1,47 @@
-# React + Vite
+# GraphQL field guide (website)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The React + Vite learning website for this repository. It contains a GraphQL
+primer, GraphQL server samples for ten backend languages, operation-writing tips,
+and an interactive API Explorer that runs queries against the demo service in
+`../src`.
 
-Currently, two official plugins are available:
+Published at <https://charles2ke.github.io/GraphQL/>.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Development
 
-## React Compiler
+```bash
+npm install
+npm run dev
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Start the API server from the repository root (`npm start`, port `4000`) so the
+API Explorer has a backend; Vite proxies `/graphql` to it during development.
+The Explorer lives at `/#explorer`.
 
-## Expanding the Oxlint configuration
+To target a different API, set `VITE_GRAPHQL_URL` to its GraphQL endpoint:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+```bash
+VITE_GRAPHQL_URL=https://example.com/graphql npm run dev
+```
+
+## Scripts
+
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Vite dev server with HMR |
+| `npm run build` | Production build into `dist/` |
+| `npm run preview` | Serve the production build |
+| `npm run lint` | Oxlint |
+
+## Deployment
+
+`GITHUB_PAGES=true` sets the Vite `base` to `/GraphQL/`, matching the project
+Pages URL:
+
+```bash
+GITHUB_PAGES=true npm run build
+```
+
+The `.github/workflows/deploy-pages.yml` workflow runs this build and publishes
+`dist/` to GitHub Pages on every push to `main` that touches `website/`, and on
+manual dispatch.

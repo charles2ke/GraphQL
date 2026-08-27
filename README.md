@@ -2,6 +2,8 @@
 
 Make any microservice have a GraphQL implementation.
 
+**Live website: <https://charles2ke.github.io/GraphQL/>**
+
 This repository contains a minimal, working backend service that exposes a GraphQL
 API for a small `User` / `Post` domain. It uses in-memory storage, so it runs from a
 clean checkout without any database or other external dependency.
@@ -24,6 +26,12 @@ src/
   data/store.js    # In-memory data store with seed data
 test/
   graphql.test.js  # API tests executed against the schema
+website/
+  src/App.jsx      # Learning site: primer, tips, API Explorer
+  src/backendSamples.js  # GraphQL server samples in 10 backend languages
+  vite.config.js   # Vite config (GitHub Pages base path + /graphql dev proxy)
+.github/workflows/
+  deploy-pages.yml # Builds website/ and publishes it to GitHub Pages
 ```
 
 ## Installation
@@ -51,13 +59,17 @@ explore the schema and run the operations below.
 
 ## Learning website
 
-The React learning website includes a GraphQL primer, practical tips, and an
-interactive API Explorer that runs requests against this service.
+The React learning website includes a GraphQL primer, side-by-side server samples
+for ten backend languages, practical tips, and an interactive API Explorer that
+runs requests against this service.
 
 The site is published with GitHub Pages at
 <https://charles2ke.github.io/GraphQL/>. Changes under `website/` are deployed
-automatically when they are merged to `main`; the workflow can also be run
-manually from GitHub Actions.
+automatically when they are merged to `main` by the
+[`Deploy website to GitHub Pages`](.github/workflows/deploy-pages.yml) workflow;
+the workflow can also be run manually from the Actions tab. The workflow enables
+Pages and sets its source to GitHub Actions on the first run, so no manual
+repository setup is required.
 
 ```bash
 cd website
@@ -75,7 +87,9 @@ To build the same static site that GitHub Pages deploys:
 
 ```bash
 cd website
-GITHUB_PAGES=true npm run build
+GITHUB_PAGES=true npm run build   # output in website/dist
+npm run preview                   # serve the production build locally
+npm run lint                      # Oxlint
 ```
 
 ## Tests
