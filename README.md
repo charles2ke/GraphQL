@@ -54,6 +54,11 @@ explore the schema and run the operations below.
 The React learning website includes a GraphQL primer, practical tips, and an
 interactive API Explorer that runs requests against this service.
 
+The site is published with GitHub Pages at
+<https://charles2ke.github.io/GraphQL/>. Changes under `website/` are deployed
+automatically when they are merged to `main`; the workflow can also be run
+manually from GitHub Actions.
+
 ```bash
 cd website
 npm install
@@ -65,6 +70,13 @@ Keep the API server running on port `4000`, then open the URL printed by Vite
 `/#explorer`. During development, Vite proxies `/graphql` requests to the local
 API. To target a different API, start Vite with `VITE_GRAPHQL_URL` set to its
 GraphQL endpoint.
+
+To build the same static site that GitHub Pages deploys:
+
+```bash
+cd website
+GITHUB_PAGES=true npm run build
+```
 
 ## Tests
 
