@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { backendSamples } from './backendSamples'
 import './App.css'
 
 const examples = {
@@ -35,7 +36,30 @@ const lessons = [
 ]
 
 function CodeBlock({ children }) {
-  return <pre><code>{children}</code></pre>
+  return <pre tabIndex={0}><code>{children}</code></pre>
+}
+
+function BackendSamples() {
+  return (
+    <section className="samples" aria-labelledby="samples-title">
+      <div className="section-intro">
+        <p className="eyebrow">Backend samples</p>
+        <h2 id="samples-title">GraphQL in 10 common backend languages.</h2>
+        <p>Each sample is an illustrative snippet showing the smallest useful shape—defining schema or resolver code before wiring it to a GraphQL endpoint. Snippets may omit boilerplate and setup for brevity and are not meant to run as-is.</p>
+      </div>
+      <div className="sample-grid">
+        {backendSamples.map(({ language, framework, code }) => (
+          <article className="sample-card" key={language}>
+            <div className="sample-meta">
+              <h3>{language}</h3>
+              <span>{framework}</span>
+            </div>
+            <CodeBlock>{code}</CodeBlock>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
 }
 
 function LearnPage({ openExplorer }) {
@@ -71,6 +95,8 @@ function LearnPage({ openExplorer }) {
         </div>
         <CodeBlock>{examples.users}</CodeBlock>
       </section>
+
+      <BackendSamples />
 
       <section className="tips" aria-labelledby="tips-title">
         <p className="eyebrow">Tips &amp; tricks</p>
