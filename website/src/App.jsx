@@ -164,7 +164,7 @@ function BackendSamples() {
       <div className="section-intro">
         <p className="eyebrow">Backend samples</p>
         <h2 id="samples-title">GraphQL in 10 common backend languages.</h2>
-        <p>Each sample shows the smallest useful shape: define schema or resolver code, then expose it at a GraphQL endpoint.</p>
+        <p>Each sample is an illustrative snippet showing the smallest useful shape—defining schema or resolver code before wiring it to a GraphQL endpoint. Snippets may omit boilerplate and setup for brevity and are not meant to run as-is.</p>
       </div>
       <div className="sample-grid">
         {backendSamples.map(({ language, framework, code }) => (
