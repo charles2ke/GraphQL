@@ -64,12 +64,13 @@ for ten backend languages, practical tips, and an interactive API Explorer that
 runs requests against this service.
 
 The site is published with GitHub Pages at
-<https://charles2ke.github.io/GraphQL/>. Changes under `website/` are deployed
-automatically when they are merged to `main` by the
+<https://charles2ke.github.io/GraphQL/>. Every push to `main` is deployed by the
 [`Deploy website to GitHub Pages`](.github/workflows/deploy-pages.yml) workflow;
 the workflow can also be run manually from the Actions tab. The workflow enables
-Pages and sets its source to GitHub Actions on the first run, so no manual
-repository setup is required.
+Pages and forces its build type to GitHub Actions, so the built website — not the
+Jekyll-rendered README — is what gets served. If the deployment ever fails to
+update the Pages configuration, set **Settings → Pages → Source** to
+**GitHub Actions** once and re-run the workflow.
 
 ```bash
 cd website
