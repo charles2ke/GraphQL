@@ -18,7 +18,7 @@ export function normalizePosition(position) {
   const costBasis = money(quantity * averageCost);
 
   return {
-    id: String(position.id ?? `${position.accountId ?? position.acct_id}:${position.symbol ?? position.ticker}`),
+    id: String(position.id ?? `${position.accountId ?? position.account_id ?? position.acct_id}:${position.symbol ?? position.ticker}`),
     accountId: String(position.accountId ?? position.account_id ?? position.acct_id),
     symbol: String(position.symbol ?? position.ticker).toUpperCase(),
     quantity,
