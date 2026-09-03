@@ -25,7 +25,7 @@ describe('finance domain normalization', () => {
     assert.equal(position.unrealizedPnL, 100);
   });
 
-  it('normalizes trades and derives tax events for sells only', () => {
+  it('normalizes trades and derives tax events for sells and buys', () => {
     const trade = normalizeTrade({
       trade_id: 't-1',
       acct_id: 'acct-1',

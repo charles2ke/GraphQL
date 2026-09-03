@@ -10,7 +10,7 @@ clean checkout without any database or other external dependency.
 
 ## Stack
 
-- [Node.js](https://nodejs.org/) 18+ (ES modules)
+- [Node.js](https://nodejs.org/) 20+ (ES modules)
 - [Apollo Server 5](https://www.apollographql.com/docs/apollo-server/) on [Express 4](https://expressjs.com/) via `@as-integrations/express4`
 - [graphql-js](https://github.com/graphql/graphql-js)
 - Tests with the built-in `node:test` runner
