@@ -23,7 +23,11 @@ src/
   server.js        # Apollo Server factory (reused by the tests)
   schema.js        # GraphQL type definitions
   resolvers.js     # Query / Mutation / field resolvers
+  config/finance.js # Environment-driven finance connector config
+  connectors/      # Replaceable OpenTrading, Portfolio-Watcher, tax-break adapters
   data/store.js    # In-memory data store with seed data
+  domain/finance.js # Canonical finance models and normalization helpers
+  services/financeService.js # Finance aggregation, caching, and error handling
 test/
   graphql.test.js  # API tests executed against the schema
 website/
@@ -99,6 +103,108 @@ npm run lint                      # Oxlint
 npm test
 ```
 
+## Finance Cluster Integration (Priority 1)
+
+This service now exposes a unified finance GraphQL surface over three upstream
+domains:
+
+- **OpenTrading**: accounts, orders, trades, and fills
+- **Portfolio-Watcher**: holdings/positions and performance snapshots
+- **tax-break**: trade-to-tax-event mapping and tax estimate summaries
+
+The initial implementation uses mock connectors under `src/connectors/` so the
+API runs from a clean checkout. Each connector exposes a small async contract
+that can be replaced later with HTTP, gRPC, queue, or database-backed clients
+without changing the GraphQL schema.
+
+### Configuration
+
+The running server loads connector settings from the environment via
+`src/config/finance.js`:
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `OPENTRADING_ENDPOINT` | OpenTrading endpoint placeholder | `mock://opentrading` |
+| `OPENTRADING_API_KEY` | OpenTrading credential placeholder | empty |
+| `PORTFOLIO_WATCHER_ENDPOINT` | Portfolio-Watcher endpoint placeholder | `mock://portfolio-watcher` |
+| `PORTFOLIO_WATCHER_API_KEY` | Portfolio-Watcher credential placeholder | empty |
+| `TAX_BREAK_ENDPOINT` | tax-break endpoint placeholder | `mock://tax-break` |
+| `TAX_BREAK_API_KEY` | tax-break credential placeholder | empty |
+| `FINANCE_CACHE_TTL_MS` | Minimal resolver cache TTL | `1000` |
+
+Do not commit real credentials. Production connectors should read credentials
+from environment variables or a secret manager and keep the same method names as
+the mock adapters.
+
+### Data flow
+
+1. GraphQL resolvers call `financeService` through the request context.
+2. `financeService` calls each upstream connector and normalizes inconsistent
+   field names in `src/domain/finance.js`.
+3. OpenTrading trades are enriched through tax-break into `TaxEvent` records.
+4. Portfolio-Watcher positions and snapshots are aggregated with accounts into a
+   portfolio overview with total market value and unrealized P/L.
+5. Connector failures are captured as `FinanceUpstreamError` objects so clients
+   receive actionable source/code/message details while still getting any
+   partial data from healthy upstreams.
+
+### Finance queries
+
+Portfolio overview with positions and P/L:
+
+```graphql
+query PortfolioOverview {
+  portfolioOverview {
+    accounts { id name provider currency }
+    positions { symbol quantity marketValue unrealizedPnL }
+    performance { asOf totalValue dayPnL totalPnL }
+    totalMarketValue
+    totalUnrealizedPnL
+    errors { source code message }
+  }
+}
+```
+
+Trade history mapped to tax-relevant events:
+
+```graphql
+query TradeHistory {
+  tradeHistory(symbol: "AAPL") {
+    trades { id side symbol quantity price executedAt }
+    taxEvents { tradeId proceeds costBasis realizedGain occurredAt }
+    errors { source code message }
+  }
+}
+```
+
+Tax summary traceable to the underlying trading activity:
+
+```graphql
+query TaxEstimate {
+  taxEstimate(taxYear: 2026) {
+    totalProceeds
+    totalCostBasis
+    realizedGain
+    estimatedTax
+    events { id tradeId realizedGain }
+    errors { source code message }
+  }
+}
+```
+
+Run the API and tests with the existing commands:
+
+```bash
+npm start
+npm test
+```
+
+Follow-up production tasks:
+
+- Replace mock connectors with authenticated clients for each upstream domain.
+- Add pagination/date filters once live trade and snapshot volumes grow.
+- Add persisted caching/batching if upstream latency becomes significant.
+
 ## API
 
 | Operation | Description |
@@ -107,6 +213,9 @@ npm test
 | `user(id: ID!)` | Fetch a single user, `null` when unknown |
 | `posts` | List all posts |
 | `post(id: ID!)` | Fetch a single post, `null` when unknown |
+| `portfolioOverview(accountId)` | Fetch finance accounts, positions, snapshots, and P/L |
+| `tradeHistory(accountId, symbol)` | Fetch trades/orders enriched with tax events |
+| `taxEstimate(taxYear, accountId)` | Estimate tax from tax-relevant trading activity |
 | `createUser(name, email)` | Create a user |
 | `createPost(title, content, authorId)` | Create a post for an existing user |
 
