@@ -1,12 +1,11 @@
 name: Deploy website to GitHub Pages
 
 on:
+  # Deploy on every push to main (no path filter) so the published site is always
+  # the built website, even after commits that only touch the backend or docs.
   push:
     branches:
       - main
-    paths:
-      - website/**
-      - .github/workflows/deploy-pages.yml
   workflow_dispatch:
 
 permissions:
@@ -31,6 +30,21 @@ jobs:
           # Enables Pages and switches the source to GitHub Actions so the built
           # website is published instead of the Jekyll-rendered README.
           enablement: true
+
+      - name: Ensure Pages build type is GitHub Actions
+        # When Pages was previously configured with the "Deploy from a branch"
+        # source, GitHub keeps running the legacy Jekyll build, which republishes
+        # the README over this workflow's deployment. Force the build type back to
+        # "workflow" so only the built website is served.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/pages" \
+            -f build_type=workflow \
+            || echo "Could not update the Pages build type; set Settings > Pages > Source to 'GitHub Actions' manually."
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
