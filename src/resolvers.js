@@ -10,6 +10,9 @@ export const resolvers = {
     user: (_parent, { id }, { store }) => store.getUser(id),
     posts: (_parent, _args, { store }) => store.listPosts(),
     post: (_parent, { id }, { store }) => store.getPost(id),
+    portfolioOverview: (_parent, args, { finance }) => finance.portfolioOverview(args),
+    tradeHistory: (_parent, args, { finance }) => finance.tradeHistory(args),
+    taxEstimate: (_parent, args, { finance }) => finance.taxEstimate(args),
   },
 
   Mutation: {
