@@ -1,4 +1,4 @@
-import { expressMiddleware } from '@apollo/server/express4';
+import { expressMiddleware } from '@as-integrations/express4';
 import cors from 'cors';
 import express from 'express';
 

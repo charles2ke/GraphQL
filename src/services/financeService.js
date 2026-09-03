@@ -38,15 +38,30 @@ export function createFinanceService({ config = loadFinanceConfig(), connectors,
     taxBreak: createTaxBreakConnector(config.taxBreak),
   };
   const cache = new Map();
+  // Concurrent resolvers asking for the same upstream data share a single
+  // in-flight request instead of fanning out duplicate connector calls.
+  const inFlight = new Map();
 
   async function cached(key, load) {
     const now = Date.now();
     const hit = cache.get(key);
     if (hit && hit.expiresAt > now) return hit.value;
 
-    const value = await load();
-    cache.set(key, { value, expiresAt: now + cacheTtlMs });
-    return value;
+    const pending = inFlight.get(key);
+    if (pending) return pending;
+
+    const request = (async () => {
+      try {
+        const value = await load();
+        cache.set(key, { value, expiresAt: Date.now() + cacheTtlMs });
+        return value;
+      } finally {
+        inFlight.delete(key);
+      }
+    })();
+
+    inFlight.set(key, request);
+    return request;
   }
 
   async function getTradingData() {

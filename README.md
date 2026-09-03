@@ -11,7 +11,7 @@ clean checkout without any database or other external dependency.
 ## Stack
 
 - [Node.js](https://nodejs.org/) 18+ (ES modules)
-- [Apollo Server 4](https://www.apollographql.com/docs/apollo-server/) on [Express](https://expressjs.com/)
+- [Apollo Server 5](https://www.apollographql.com/docs/apollo-server/) on [Express 4](https://expressjs.com/) via `@as-integrations/express4`
 - [graphql-js](https://github.com/graphql/graphql-js)
 - Tests with the built-in `node:test` runner
 
@@ -147,6 +147,9 @@ the mock adapters.
 5. Connector failures are captured as `FinanceUpstreamError` objects so clients
    receive actionable source/code/message details while still getting any
    partial data from healthy upstreams.
+6. Upstream reads go through a short-lived TTL cache
+   (`FINANCE_CACHE_TTL_MS`) that also de-duplicates concurrent requests, so
+   overlapping resolvers share a single connector call.
 
 ### Finance queries
 
