@@ -15,10 +15,11 @@ import {
 } from '../domain/finance.js';
 
 function upstreamError(source, error) {
+  const message = error instanceof Error ? error.message : String(error);
   return {
     source,
     code: 'UPSTREAM_UNAVAILABLE',
-    message: `${source} connector failed: ${error.message}`,
+    message: `${source} connector failed: ${message}`,
   };
 }
 
@@ -114,7 +115,7 @@ export function createFinanceService({ config = loadFinanceConfig(), connectors,
     async taxEstimate({ taxYear, accountId } = {}) {
       const history = await this.tradeHistory({ accountId });
       const estimate = await capture('tax-break', () => upstreams.taxBreak.estimateTax({ events: history.taxEvents, taxYear }));
-      const fallback = estimateTaxFromEvents(history.taxEvents, taxYear);
+      const fallback = estimate.error ? estimateTaxFromEvents(history.taxEvents, taxYear) : null;
 
       return {
         ...(estimate.error ? fallback : estimate.data),
