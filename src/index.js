@@ -3,6 +3,7 @@ import cors from 'cors';
 import express from 'express';
 
 import { store } from './data/store.js';
+import { financeService } from './services/financeService.js';
 import { createApolloServer } from './server.js';
 
 const PORT = Number(process.env.PORT) || 4000;
@@ -23,7 +24,7 @@ async function main() {
     express.json(),
     expressMiddleware(apolloServer, {
       // Every request shares the same in-memory store.
-      context: async () => ({ store }),
+      context: async () => ({ store, finance: financeService }),
     })
   );
 
