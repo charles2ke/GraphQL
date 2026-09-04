@@ -38,6 +38,7 @@ export function createOpenTradingConnector(_config = {}) {
 
   return {
     source: 'OpenTrading',
+    health: async () => ({ source: 'OpenTrading', status: 'ok', endpoint: 'mock://opentrading' }),
     listAccounts: async () => accounts,
     listTrades: async () => trades,
     listOrders: async () => orders,

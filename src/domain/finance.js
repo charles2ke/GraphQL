@@ -113,12 +113,68 @@ export function filterByAccount(records, accountId) {
   return accountId ? records.filter((record) => record.accountId === accountId || record.id === accountId) : records;
 }
 
-export function filterTrades(trades, { accountId, symbol } = {}) {
+/** Inclusive date-range check against an ISO timestamp field. */
+export function withinRange(timestamp, { from, to } = {}) {
+  if (!from && !to) return true;
+
+  const value = new Date(timestamp).getTime();
+  if (Number.isNaN(value)) return false;
+  if (from && value < new Date(from).getTime()) return false;
+  if (to && value > new Date(to).getTime()) return false;
+  return true;
+}
+
+export function filterTrades(trades, { accountId, symbol, side, status, from, to } = {}) {
   return trades.filter((trade) => {
     const accountMatches = accountId ? trade.accountId === accountId : true;
     const symbolMatches = symbol ? trade.symbol === symbol.toUpperCase() : true;
-    return accountMatches && symbolMatches;
+    const sideMatches = side ? trade.side === side.toUpperCase() : true;
+    const statusMatches = status ? trade.status === status.toUpperCase() : true;
+    return accountMatches && symbolMatches && sideMatches && statusMatches && withinRange(trade.executedAt, { from, to });
   });
+}
+
+export function filterOrders(orders, { accountId, symbol, side, status, from, to } = {}) {
+  return filterByAccount(orders, accountId).filter((order) => {
+    const symbolMatches = symbol ? order.symbol === symbol.toUpperCase() : true;
+    const sideMatches = side ? order.side === side.toUpperCase() : true;
+    const statusMatches = status ? order.status === status.toUpperCase() : true;
+    return symbolMatches && sideMatches && statusMatches && withinRange(order.createdAt, { from, to });
+  });
+}
+
+export function filterTaxEvents(events, { symbol, from, to } = {}) {
+  return events.filter((event) => {
+    const symbolMatches = symbol ? event.symbol === symbol.toUpperCase() : true;
+    return symbolMatches && withinRange(event.occurredAt, { from, to });
+  });
+}
+
+export function filterSnapshots(snapshots, { from, to } = {}) {
+  return snapshots.filter((snapshot) => withinRange(snapshot.asOf, { from, to }));
+}
+
+/**
+ * Offset/limit pagination that always reports the total so clients can build
+ * page controls without a second round trip.
+ */
+export function paginate(records, { limit, offset = 0 } = {}, { defaultLimit = 25, maxLimit = 100 } = {}) {
+  const totalCount = records.length;
+  const safeOffset = Number.isFinite(Number(offset)) ? Math.max(0, Math.trunc(Number(offset))) : 0;
+  const requested = limit === undefined || limit === null ? defaultLimit : Number(limit);
+  const safeLimit = Math.min(Math.max(0, Number.isFinite(requested) ? Math.trunc(requested) : defaultLimit), maxLimit);
+  const items = records.slice(safeOffset, safeOffset + safeLimit);
+
+  return {
+    items,
+    pageInfo: {
+      totalCount,
+      limit: safeLimit,
+      offset: safeOffset,
+      hasNextPage: safeOffset + items.length < totalCount,
+      hasPreviousPage: safeOffset > 0,
+    },
+  };
 }
 
 export function estimateTaxFromEvents(events, taxYear, rate = 0.22) {

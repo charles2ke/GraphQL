@@ -8,7 +8,9 @@ import {
   normalizeAccount,
   normalizePosition,
   normalizeTrade,
+  paginate,
   tradeToTaxEvent,
+  withinRange,
 } from '../src/domain/finance.js';
 import { loadFinanceConfig } from '../src/config/finance.js';
 import { createFinanceService } from '../src/services/financeService.js';
@@ -132,5 +134,63 @@ describe('finance service configuration and batching', () => {
     await finance.portfolioOverview();
 
     assert.equal(accountCalls, 1);
+  });
+});
+
+describe('finance filtering and pagination', () => {
+  const trades = [
+    { id: 't-1', accountId: 'acct-1', symbol: 'AAPL', side: 'BUY', status: 'FILLED', executedAt: '2026-01-10T14:31:00.000Z' },
+    { id: 't-2', accountId: 'acct-1', symbol: 'AAPL', side: 'SELL', status: 'FILLED', executedAt: '2026-04-05T15:45:00.000Z' },
+    { id: 't-3', accountId: 'acct-2', symbol: 'MSFT', side: 'SELL', status: 'CANCELLED', executedAt: '2025-12-01T10:00:00.000Z' },
+  ];
+
+  it('filters trades by side, status, and an inclusive date range', () => {
+    assert.deepEqual(filterTrades(trades, { side: 'sell' }).map((trade) => trade.id), ['t-2', 't-3']);
+    assert.deepEqual(filterTrades(trades, { status: 'cancelled' }).map((trade) => trade.id), ['t-3']);
+    assert.deepEqual(
+      filterTrades(trades, { from: '2026-01-01T00:00:00.000Z', to: '2026-02-01T00:00:00.000Z' }).map((trade) => trade.id),
+      ['t-1']
+    );
+    assert.equal(withinRange('2026-01-10T14:31:00.000Z', { from: '2026-01-10T14:31:00.000Z' }), true);
+    assert.equal(withinRange('not-a-date', { from: '2026-01-01T00:00:00.000Z' }), false);
+  });
+
+  it('paginates with clamped limits and reports page metadata', () => {
+    const first = paginate(trades, { limit: 2, offset: 0 });
+    assert.deepEqual(first.items.map((trade) => trade.id), ['t-1', 't-2']);
+    assert.deepEqual(first.pageInfo, { totalCount: 3, limit: 2, offset: 0, hasNextPage: true, hasPreviousPage: false });
+
+    const second = paginate(trades, { limit: 2, offset: 2 });
+    assert.deepEqual(second.items.map((trade) => trade.id), ['t-3']);
+    assert.equal(second.pageInfo.hasNextPage, false);
+    assert.equal(second.pageInfo.hasPreviousPage, true);
+
+    const clamped = paginate(trades, { limit: 500, offset: -5 }, { defaultLimit: 25, maxLimit: 2 });
+    assert.equal(clamped.pageInfo.limit, 2);
+    assert.equal(clamped.pageInfo.offset, 0);
+
+    const defaulted = paginate(trades, {}, { defaultLimit: 1, maxLimit: 10 });
+    assert.equal(defaulted.items.length, 1);
+  });
+});
+
+describe('finance service health', () => {
+  it('aggregates upstream connector health', async () => {
+    const finance = createFinanceService({
+      connectors: {
+        openTrading: { source: 'OpenTrading', health: async () => ({ source: 'OpenTrading', status: 'ok' }) },
+        portfolioWatcher: {
+          source: 'Portfolio-Watcher',
+          health: async () => {
+            throw new Error('probe failed');
+          },
+        },
+        taxBreak: { source: 'tax-break', health: async () => ({ source: 'tax-break', status: 'ok' }) },
+      },
+    });
+
+    const health = await finance.health();
+    assert.equal(health.status, 'degraded');
+    assert.equal(health.upstreams.find((check) => check.source === 'Portfolio-Watcher').status, 'degraded');
   });
 });

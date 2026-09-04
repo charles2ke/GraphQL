@@ -1,5 +1,6 @@
 import { ApolloServer } from '@apollo/server';
 
+import { createObservabilityPlugin } from './observability/apolloPlugin.js';
 import { resolvers } from './resolvers.js';
 import { typeDefs } from './schema.js';
 
@@ -8,6 +9,10 @@ import { typeDefs } from './schema.js';
  * Exported separately from the HTTP bootstrap so tests can run queries
  * against the server without opening a port.
  */
-export function createApolloServer() {
-  return new ApolloServer({ typeDefs, resolvers });
+export function createApolloServer({ logger, metrics, plugins = [] } = {}) {
+  return new ApolloServer({
+    typeDefs,
+    resolvers,
+    plugins: [createObservabilityPlugin({ logger, metrics }), ...plugins],
+  });
 }
