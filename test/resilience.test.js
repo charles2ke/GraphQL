@@ -72,9 +72,9 @@ describe('upstream error classification', () => {
 describe('cache strategies', () => {
   it('expires memory entries once the TTL elapses', async () => {
     const store = createMemoryCacheStore();
-    store.set('k', { value: 1 }, 5);
+    store.set('k', { value: 1 }, 50);
     assert.deepEqual(store.get('k'), { value: 1 });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 200));
     assert.equal(store.get('k'), undefined);
   });
 
