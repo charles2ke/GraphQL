@@ -56,7 +56,9 @@ The server listens on port `4000` by default (override with the `PORT`
 environment variable):
 
 - GraphQL endpoint: <http://localhost:4000/graphql>
-- Health check: <http://localhost:4000/health>
+- Liveness check: <http://localhost:4000/health>
+- Readiness check (per-upstream): <http://localhost:4000/ready>
+- Metrics (Prometheus text): <http://localhost:4000/metrics>
 
 Opening the GraphQL endpoint in a browser loads the Apollo Sandbox, where you can
 explore the schema and run the operations below.
@@ -131,6 +133,17 @@ The running server loads connector settings from the environment via
 | `TAX_BREAK_ENDPOINT` | tax-break endpoint placeholder | `mock://tax-break` |
 | `TAX_BREAK_API_KEY` | tax-break credential placeholder | empty |
 | `FINANCE_CACHE_TTL_MS` | Minimal resolver cache TTL | `1000` |
+| `FINANCE_HTTP_TIMEOUT_MS` | Per-request upstream timeout | `5000` |
+| `FINANCE_HTTP_MAX_RETRIES` | Retries for timeouts, 429s, and 5xx responses | `2` |
+| `FINANCE_DEFAULT_PAGE_SIZE` | Default page size when `limit` is omitted | `25` |
+| `FINANCE_MAX_PAGE_SIZE` | Upper bound applied to any requested `limit` | `100` |
+| `LOG_LEVEL` | Structured log level (`debug`/`info`/`warn`/`error`) | `info` |
+
+Each connector endpoint that is **not** a `mock://` URL is served by the
+production HTTP client in `src/connectors/httpClient.js`, which adds bearer
+authentication, request timeouts, bounded retries with exponential backoff, and
+per-call metrics. Mock adapters remain the default so the service still runs
+from a clean checkout.
 
 Do not commit real credentials. Production connectors should read credentials
 from environment variables or a secret manager and keep the same method names as
@@ -202,11 +215,48 @@ npm start
 npm test
 ```
 
+### Filtering and pagination
+
+Finance queries accept optional filters and offset pagination:
+
+- `portfolioOverview(accountId, from, to, limit, offset)` — `from`/`to` bound
+  performance snapshots (inclusive ISO-8601); `limit`/`offset` page positions.
+- `tradeHistory(accountId, symbol, side, status, from, to, limit, offset)` —
+  filters trades and orders, then pages them. Returned tax events always match
+  the trades on the current page.
+- `taxEstimate(taxYear, accountId, symbol, from, to, limit, offset)` — totals are
+  always computed over every matching event; `limit`/`offset` only page the
+  returned `events`.
+
+Every finance payload includes `pageInfo { totalCount limit offset hasNextPage
+hasPreviousPage }`. Requested limits are clamped to `FINANCE_MAX_PAGE_SIZE`.
+
+```graphql
+query RecentSells {
+  tradeHistory(side: "SELL", from: "2026-01-01T00:00:00.000Z", limit: 10) {
+    trades { id symbol quantity price executedAt }
+    pageInfo { totalCount hasNextPage }
+  }
+}
+```
+
+### Observability
+
+- **Structured logs**: JSON lines from `src/observability/logger.js`, with
+  credential-like fields redacted. One line per GraphQL operation includes the
+  operation name, duration, outcome, and error codes.
+- **Metrics**: `src/observability/metrics.js` records GraphQL operation
+  counts/latency, connector call counts/latency per source and operation,
+  upstream retry failures, and cache hit/miss/coalesced counters. Scrape them at
+  `GET /metrics`.
+- **Health**: `GET /health` is a liveness probe; `GET /ready` calls each
+  connector's health check and returns `503` when any upstream is degraded.
+
 Follow-up production tasks:
 
-- Replace mock connectors with authenticated clients for each upstream domain.
-- Add pagination/date filters once live trade and snapshot volumes grow.
 - Add persisted caching/batching if upstream latency becomes significant.
+- Move from offset pagination to cursor pagination if upstream APIs expose
+  stable cursors.
 
 ## API
 
@@ -216,9 +266,9 @@ Follow-up production tasks:
 | `user(id: ID!)` | Fetch a single user, `null` when unknown |
 | `posts` | List all posts |
 | `post(id: ID!)` | Fetch a single post, `null` when unknown |
-| `portfolioOverview(accountId)` | Fetch finance accounts, positions, snapshots, and P/L |
-| `tradeHistory(accountId, symbol)` | Fetch trades/orders enriched with tax events |
-| `taxEstimate(taxYear, accountId)` | Estimate tax from tax-relevant trading activity |
+| `portfolioOverview(accountId, from, to, limit, offset)` | Fetch finance accounts, positions, snapshots, and P/L |
+| `tradeHistory(accountId, symbol, side, status, from, to, limit, offset)` | Fetch trades/orders enriched with tax events |
+| `taxEstimate(taxYear, accountId, symbol, from, to, limit, offset)` | Estimate tax from tax-relevant trading activity |
 | `createUser(name, email)` | Create a user |
 | `createPost(title, content, authorId)` | Create a post for an existing user |
 

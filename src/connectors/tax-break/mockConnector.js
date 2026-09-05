@@ -4,6 +4,7 @@ import { estimateTaxFromEvents, tradeToTaxEvent } from '../../domain/finance.js'
 export function createTaxBreakConnector(_config = {}) {
   return {
     source: 'tax-break',
+    health: async () => ({ source: 'tax-break', status: 'ok', endpoint: 'mock://tax-break' }),
     mapTradesToTaxEvents: async (trades) => trades.filter((trade) => trade.side === 'SELL').map(tradeToTaxEvent),
     estimateTax: async ({ events, taxYear }) => estimateTaxFromEvents(events, taxYear, 0.22),
   };

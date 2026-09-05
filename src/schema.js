@@ -106,6 +106,15 @@ export const typeDefs = /* GraphQL */ `
     message: String!
   }
 
+  "Offset-based pagination metadata for finance collections."
+  type PageInfo {
+    totalCount: Int!
+    limit: Int!
+    offset: Int!
+    hasNextPage: Boolean!
+    hasPreviousPage: Boolean!
+  }
+
   "Cross-source portfolio overview composed from OpenTrading and Portfolio-Watcher."
   type PortfolioOverview {
     accounts: [Account!]!
@@ -114,6 +123,8 @@ export const typeDefs = /* GraphQL */ `
     currency: String!
     totalMarketValue: Float!
     totalUnrealizedPnL: Float!
+    "Pagination metadata for the returned positions."
+    pageInfo: PageInfo!
     errors: [FinanceUpstreamError!]!
   }
 
@@ -122,6 +133,8 @@ export const typeDefs = /* GraphQL */ `
     trades: [Trade!]!
     orders: [Order!]!
     taxEvents: [TaxEvent!]!
+    "Pagination metadata for the returned trades."
+    pageInfo: PageInfo!
     errors: [FinanceUpstreamError!]!
   }
 
@@ -135,6 +148,8 @@ export const typeDefs = /* GraphQL */ `
     estimatedTax: Float!
     taxRate: Float!
     events: [TaxEvent!]!
+    "Pagination metadata for the returned tax events."
+    pageInfo: PageInfo!
     errors: [FinanceUpstreamError!]!
   }
 
@@ -147,12 +162,40 @@ export const typeDefs = /* GraphQL */ `
     posts: [Post!]!
     "A single post by id, or null when not found."
     post(id: ID!): Post
-    "Unified finance overview with accounts, positions, snapshots, and P/L."
-    portfolioOverview(accountId: ID): PortfolioOverview!
-    "OpenTrading trades/orders mapped to tax-break tax events."
-    tradeHistory(accountId: ID, symbol: String): TradeHistory!
-    "Tax estimate derived from normalized trading activity."
-    taxEstimate(taxYear: Int!, accountId: ID): TaxEstimateSummary!
+    """
+    Unified finance overview with accounts, positions, snapshots, and P/L.
+    Date bounds (from/to, inclusive ISO-8601) apply to performance snapshots;
+    limit/offset paginate the returned positions.
+    """
+    portfolioOverview(accountId: ID, from: String, to: String, limit: Int, offset: Int): PortfolioOverview!
+    """
+    OpenTrading trades/orders mapped to tax-break tax events.
+    Trades and orders can be filtered by account, symbol, side, status, and an
+    inclusive ISO-8601 execution date range, then paginated.
+    """
+    tradeHistory(
+      accountId: ID
+      symbol: String
+      side: String
+      status: String
+      from: String
+      to: String
+      limit: Int
+      offset: Int
+    ): TradeHistory!
+    """
+    Tax estimate derived from normalized trading activity. Totals always cover
+    every matching event; limit/offset only paginate the returned events.
+    """
+    taxEstimate(
+      taxYear: Int!
+      accountId: ID
+      symbol: String
+      from: String
+      to: String
+      limit: Int
+      offset: Int
+    ): TaxEstimateSummary!
   }
 
   type Mutation {

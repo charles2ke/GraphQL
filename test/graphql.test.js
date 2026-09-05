@@ -153,6 +153,48 @@ describe('GraphQL API', () => {
     assert.deepEqual(result.data.taxEstimate.errors, []);
   });
 
+  it('filters trade history by side and date range', async () => {
+    const result = await execute(`{
+      tradeHistory(side: "SELL", from: "2026-02-01T00:00:00.000Z") {
+        trades { id side executedAt }
+        orders { id }
+        taxEvents { tradeId }
+        pageInfo { totalCount limit offset hasNextPage hasPreviousPage }
+      }
+    }`);
+
+    assert.equal(result.errors, undefined);
+    assert.deepEqual(result.data.tradeHistory.trades.map((trade) => trade.id), ['trade-2']);
+    assert.deepEqual(result.data.tradeHistory.taxEvents.map((event) => event.tradeId), ['trade-2']);
+    assert.equal(result.data.tradeHistory.pageInfo.totalCount, 1);
+    assert.equal(result.data.tradeHistory.pageInfo.hasNextPage, false);
+  });
+
+  it('paginates trade history and reports page metadata', async () => {
+    const first = await execute('{ tradeHistory(limit: 1) { trades { id } pageInfo { totalCount hasNextPage hasPreviousPage } } }');
+    assert.deepEqual(first.data.tradeHistory.trades.map((trade) => trade.id), ['trade-1']);
+    assert.equal(first.data.tradeHistory.pageInfo.totalCount, 2);
+    assert.equal(first.data.tradeHistory.pageInfo.hasNextPage, true);
+
+    const second = await execute('{ tradeHistory(limit: 1, offset: 1) { trades { id } pageInfo { hasNextPage hasPreviousPage } } }');
+    assert.deepEqual(second.data.tradeHistory.trades.map((trade) => trade.id), ['trade-2']);
+    assert.equal(second.data.tradeHistory.pageInfo.hasNextPage, false);
+    assert.equal(second.data.tradeHistory.pageInfo.hasPreviousPage, true);
+  });
+
+  it('paginates portfolio positions and keeps tax totals over all matching events', async () => {
+    const overview = await execute('{ portfolioOverview(limit: 1) { positions { symbol } pageInfo { totalCount hasNextPage } } }');
+    assert.equal(overview.data.portfolioOverview.positions.length, 1);
+    assert.equal(overview.data.portfolioOverview.pageInfo.totalCount, 2);
+    assert.equal(overview.data.portfolioOverview.pageInfo.hasNextPage, true);
+
+    const estimate = await execute('{ taxEstimate(taxYear: 2026, limit: 0) { totalProceeds estimatedTax events { id } pageInfo { totalCount } } }');
+    assert.equal(estimate.data.taxEstimate.totalProceeds, 720);
+    assert.equal(estimate.data.taxEstimate.estimatedTax, 28.51);
+    assert.deepEqual(estimate.data.taxEstimate.events, []);
+    assert.equal(estimate.data.taxEstimate.pageInfo.totalCount, 1);
+  });
+
   it('surfaces upstream errors while returning partial finance data', async () => {
     finance = createFinanceService({
       connectors: {

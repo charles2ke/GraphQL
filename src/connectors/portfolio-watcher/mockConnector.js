@@ -11,6 +11,7 @@ export function createPortfolioWatcherConnector(_config = {}) {
 
   return {
     source: 'Portfolio-Watcher',
+    health: async () => ({ source: 'Portfolio-Watcher', status: 'ok', endpoint: 'mock://portfolio-watcher' }),
     listPositions: async () => positions,
     listPerformanceSnapshots: async () => snapshots,
   };
