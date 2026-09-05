@@ -25,7 +25,7 @@ function tempSharedModule() {
     `module.exports.createSharedCacheStore = function createSharedCacheStore() {
       const entries = new Map();
       return {
-        kind: 'shared',
+        kind: undefined,
         get(key) {
           const hit = entries.get(key);
           if (!hit || hit.expiresAt <= Date.now()) return undefined;

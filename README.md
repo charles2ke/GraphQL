@@ -146,7 +146,7 @@ The running server loads connector settings from the environment via
 | `TAX_BREAK_ENDPOINT` | tax-break endpoint placeholder | `mock://tax-break` |
 | `TAX_BREAK_API_KEY` | tax-break credential placeholder | empty |
 | `FINANCE_CACHE_TTL_MS` | Resolver cache TTL | `1000` |
-| `FINANCE_CACHE_STORE` | Cache strategy: `memory` or `file` (persistent) | `memory` |
+| `FINANCE_CACHE_STORE` | Cache strategy: `memory`, `file` (persistent), or `shared` | `memory` |
 | `FINANCE_CACHE_FILE` | Cache file used when `FINANCE_CACHE_STORE=file` | `.cache/finance-cache.json` |
 | `FINANCE_CACHE_SHARED_MODULE` | Optional shared cache provider module path used when `FINANCE_CACHE_STORE=shared` | empty |
 | `FINANCE_HTTP_TIMEOUT_MS` | Per-request upstream timeout | `5000` |

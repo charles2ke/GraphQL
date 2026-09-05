@@ -128,7 +128,7 @@ export function createCacheStore({ store = 'memory', file, sharedModule, logger 
         if (typeof factory === 'function') {
           const sharedStore = factory({ logger });
           if (sharedStore && typeof sharedStore.get === 'function' && typeof sharedStore.set === 'function' && typeof sharedStore.clear === 'function') {
-            return { kind: sharedStore.kind ?? 'shared', ...sharedStore };
+            return { ...sharedStore, kind: sharedStore.kind ?? 'shared' };
           }
         }
         logger.warn('shared cache module is invalid, falling back to memory', { sharedModule });
