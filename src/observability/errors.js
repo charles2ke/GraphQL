@@ -6,6 +6,7 @@
  * generic outages, and callers can decide whether a retry is worthwhile.
  */
 export const ERROR_CATEGORIES = {
+  VALIDATION: 'VALIDATION',
   AUTH: 'AUTH',
   RATE_LIMIT: 'RATE_LIMIT',
   TIMEOUT: 'TIMEOUT',
@@ -25,6 +26,7 @@ function categoryFromStatus(status) {
 }
 
 function categoryFromError(error) {
+  if (error?.kind === 'auth') return ERROR_CATEGORIES.AUTH;
   if (error?.kind === 'timeout' || error?.name === 'AbortError') return ERROR_CATEGORIES.TIMEOUT;
   if (error?.kind === 'network') return ERROR_CATEGORIES.NETWORK;
   return ERROR_CATEGORIES.UNKNOWN;
@@ -43,9 +45,17 @@ const RETRYABLE = new Set([
  * the schema.
  */
 export function classifyUpstreamError(source, error) {
-  const message = error instanceof Error ? error.message : String(error);
   const status = Number.isInteger(error?.status) ? error.status : null;
   const category = status === null ? categoryFromError(error) : categoryFromStatus(status);
+  const messageByCategory = {
+    [ERROR_CATEGORIES.AUTH]: `${source} connector authentication failed`,
+    [ERROR_CATEGORIES.RATE_LIMIT]: `${source} connector rate limit exceeded`,
+    [ERROR_CATEGORIES.TIMEOUT]: `${source} connector request timed out`,
+    [ERROR_CATEGORIES.NETWORK]: `${source} connector network error`,
+    [ERROR_CATEGORIES.UPSTREAM_CLIENT_ERROR]: `${source} connector request rejected`,
+    [ERROR_CATEGORIES.UPSTREAM_SERVER_ERROR]: `${source} connector is unavailable`,
+    [ERROR_CATEGORIES.UNKNOWN]: `${source} connector request failed`,
+  };
 
   return {
     source,
@@ -53,6 +63,6 @@ export function classifyUpstreamError(source, error) {
     category,
     status,
     retryable: typeof error?.retryable === 'boolean' ? error.retryable : RETRYABLE.has(category),
-    message: `${source} connector failed: ${message}`,
+    message: status === null ? messageByCategory[category] : `${messageByCategory[category]} (HTTP ${status})`,
   };
 }

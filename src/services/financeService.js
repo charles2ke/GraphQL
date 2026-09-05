@@ -30,7 +30,7 @@ export function createFinanceService({
 } = {}) {
   const upstreams = connectors ?? createConnectors({ config, logger, metrics });
   const pageLimits = { defaultLimit: config.defaultPageSize ?? 25, maxLimit: config.maxPageSize ?? 100 };
-  const cache = cacheStore ?? createCacheStore({ store: config.cacheStore, file: config.cacheFile, logger });
+  const cache = cacheStore ?? createCacheStore({ store: config.cacheStore, file: config.cacheFile, sharedModule: config.cacheSharedModule, logger });
   // Concurrent resolvers asking for the same upstream data share a single
   // in-flight request instead of fanning out duplicate connector calls.
   const inFlight = new Map();

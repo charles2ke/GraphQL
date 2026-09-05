@@ -124,7 +124,7 @@ describe('connector selection', () => {
     assert.equal((await mocks.openTrading.health()).endpoint, 'mock://opentrading');
 
     const live = createConnectors({
-      config: loadFinanceConfig({ OPENTRADING_ENDPOINT: 'https://trading.example' }),
+      config: loadFinanceConfig({ OPENTRADING_ENDPOINT: 'https://trading.example', OPENTRADING_API_KEY: 'key' }),
       logger: silentLogger,
       metrics: createMetrics(),
       fetchImpl: async () => jsonResponse({ accounts: [] }),
@@ -132,6 +132,19 @@ describe('connector selection', () => {
 
     assert.deepEqual(await live.openTrading.listAccounts(), []);
     assert.equal((await live.portfolioWatcher.health()).endpoint, 'mock://portfolio-watcher');
+  });
+
+  it('fails safely when live endpoints are configured without credentials', async () => {
+    const live = createConnectors({
+      config: loadFinanceConfig({ OPENTRADING_ENDPOINT: 'https://trading.example' }),
+      logger: silentLogger,
+      metrics: createMetrics(),
+    });
+
+    await assert.rejects(() => live.openTrading.listAccounts(), /missing API credentials/);
+    const health = await live.openTrading.health();
+    assert.equal(health.status, 'degraded');
+    assert.equal(health.error, 'missing API credentials');
   });
 
   it('reads timeout and retry settings from the environment', () => {

@@ -1,8 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
 
 import { logger as defaultLogger } from '../observability/logger.js';
+
+const require = createRequire(import.meta.url);
 
 /** Default in-process cache: fastest option, lost on restart. */
 export function createMemoryCacheStore() {
@@ -115,8 +118,31 @@ export function createFileCacheStore({ file, logger = defaultLogger } = {}) {
 }
 
 /** Selects a cache store from configuration (`memory` by default). */
-export function createCacheStore({ store = 'memory', file, logger = defaultLogger } = {}) {
+export function createCacheStore({ store = 'memory', file, sharedModule, logger = defaultLogger } = {}) {
   if (store === 'file') return createFileCacheStore({ file, logger });
+  if (store === 'shared') {
+    if (sharedModule) {
+      try {
+        const loaded = require(sharedModule);
+        const factory = loaded.createSharedCacheStore ?? loaded.default;
+        if (typeof factory === 'function') {
+          const sharedStore = factory({ logger });
+          if (sharedStore && typeof sharedStore.get === 'function' && typeof sharedStore.set === 'function' && typeof sharedStore.clear === 'function') {
+            return { kind: sharedStore.kind ?? 'shared', ...sharedStore };
+          }
+        }
+        logger.warn('shared cache module is invalid, falling back to memory', { sharedModule });
+      } catch (error) {
+        logger.warn('shared cache module could not be loaded, falling back to memory', {
+          sharedModule,
+          error: error?.message ?? String(error),
+        });
+      }
+    } else {
+      logger.warn('shared cache store requested without module, falling back to memory');
+    }
+    return createMemoryCacheStore();
+  }
   if (store !== 'memory') {
     logger.warn('unknown cache store, falling back to memory', { store });
   }

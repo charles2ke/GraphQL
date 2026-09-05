@@ -100,10 +100,16 @@ describe('finance service configuration and batching', () => {
     const defaults = loadFinanceConfig({});
     assert.equal(defaults.openTrading.endpoint, 'mock://opentrading');
     assert.equal(defaults.cacheTtlMs, 1000);
+    assert.equal(defaults.cacheSharedModule, '');
 
-    const configured = loadFinanceConfig({ OPENTRADING_ENDPOINT: 'https://trading.example', FINANCE_CACHE_TTL_MS: '5000' });
+    const configured = loadFinanceConfig({
+      OPENTRADING_ENDPOINT: 'https://trading.example',
+      FINANCE_CACHE_TTL_MS: '5000',
+      FINANCE_CACHE_SHARED_MODULE: '/tmp/shared-cache.cjs',
+    });
     assert.equal(configured.openTrading.endpoint, 'https://trading.example');
     assert.equal(configured.cacheTtlMs, 5000);
+    assert.equal(configured.cacheSharedModule, '/tmp/shared-cache.cjs');
   });
 
   it('shares a single upstream call between concurrent and cached requests', async () => {
