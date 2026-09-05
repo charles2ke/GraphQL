@@ -253,6 +253,14 @@ describe('GraphQL API', () => {
     assert.equal(invalidDate.errors[0].extensions.code, 'BAD_USER_INPUT');
     assert.equal(invalidDate.errors[0].extensions.category, 'validation');
 
+    const emptyDate = await execute('{ tradeHistory(from: "") { trades { id } } }');
+    assert.equal(emptyDate.errors.length, 1);
+    assert.equal(emptyDate.errors[0].extensions.code, 'BAD_USER_INPUT');
+
+    const nonIsoDate = await execute('{ tradeHistory(from: "January 1, 2026") { trades { id } } }');
+    assert.equal(nonIsoDate.errors.length, 1);
+    assert.equal(nonIsoDate.errors[0].extensions.code, 'BAD_USER_INPUT');
+
     const invalidRange = await execute('{ tradeHistory(from: "2026-02-01T00:00:00.000Z", to: "2026-01-01T00:00:00.000Z") { trades { id } } }');
     assert.equal(invalidRange.errors.length, 1);
     assert.equal(invalidRange.errors[0].extensions.code, 'BAD_USER_INPUT');

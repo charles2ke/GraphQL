@@ -1,14 +1,17 @@
 import { GraphQLError } from 'graphql';
 
 function isIsoDate(value) {
-  return Number.isFinite(new Date(value).getTime());
+  const match = typeof value === 'string' && value.match(/^(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/);
+  if (!match) return false;
+  const calendarDate = new Date(`${match[1]}T00:00:00.000Z`);
+  return Number.isFinite(calendarDate.getTime()) && calendarDate.toISOString().startsWith(match[1]) && Number.isFinite(new Date(value).getTime());
 }
 
 function validateFinanceArgs(args, { requireTaxYear = false } = {}) {
   const issues = [];
-  if (args.from && !isIsoDate(args.from)) issues.push('from must be a valid ISO-8601 date');
-  if (args.to && !isIsoDate(args.to)) issues.push('to must be a valid ISO-8601 date');
-  if (args.from && args.to && isIsoDate(args.from) && isIsoDate(args.to) && new Date(args.from).getTime() > new Date(args.to).getTime()) {
+  if (args.from !== undefined && args.from !== null && !isIsoDate(args.from)) issues.push('from must be a valid ISO-8601 date');
+  if (args.to !== undefined && args.to !== null && !isIsoDate(args.to)) issues.push('to must be a valid ISO-8601 date');
+  if (isIsoDate(args.from) && isIsoDate(args.to) && new Date(args.from).getTime() > new Date(args.to).getTime()) {
     issues.push('from must be earlier than or equal to to');
   }
   if (args.limit !== undefined && args.limit !== null && args.limit < 0) issues.push('limit must be greater than or equal to 0');
