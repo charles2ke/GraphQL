@@ -31,6 +31,7 @@ export function loadFinanceConfig(env = process.env) {
     // short-lived workers can reuse warm upstream data.
     cacheStore: env.FINANCE_CACHE_STORE ?? 'memory',
     cacheFile: env.FINANCE_CACHE_FILE ?? '.cache/finance-cache.json',
+    cacheSharedModule: env.FINANCE_CACHE_SHARED_MODULE ?? '',
     defaultPageSize: Number(env.FINANCE_DEFAULT_PAGE_SIZE ?? 25),
     maxPageSize: Number(env.FINANCE_MAX_PAGE_SIZE ?? 100),
   };

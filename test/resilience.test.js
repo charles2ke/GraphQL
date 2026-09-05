@@ -17,6 +17,32 @@ function tempCacheFile() {
   return join(mkdtempSync(join(tmpdir(), 'finance-cache-')), 'cache.json');
 }
 
+function tempSharedModule() {
+  const directory = mkdtempSync(join(tmpdir(), 'finance-shared-module-'));
+  const path = join(directory, 'shared-cache.cjs');
+  writeFileSync(
+    path,
+    `module.exports.createSharedCacheStore = function createSharedCacheStore() {
+      const entries = new Map();
+      return {
+        kind: undefined,
+        get(key) {
+          const hit = entries.get(key);
+          if (!hit || hit.expiresAt <= Date.now()) return undefined;
+          return hit.value;
+        },
+        set(key, value, ttlMs) {
+          entries.set(key, { value, expiresAt: Date.now() + ttlMs });
+        },
+        clear() {
+          entries.clear();
+        }
+      };
+    };`
+  );
+  return path;
+}
+
 describe('upstream error classification', () => {
   it('maps HTTP statuses and transport failures to stable categories', () => {
     const cases = [
@@ -34,7 +60,7 @@ describe('upstream error classification', () => {
       assert.equal(classified.category, category);
       assert.equal(classified.code, code);
       assert.equal(classified.retryable, retryable);
-      assert.match(classified.message, /OpenTrading connector failed/);
+      assert.match(classified.message, /OpenTrading connector/);
     }
   });
 
@@ -103,6 +129,19 @@ describe('cache strategies', () => {
     assert.equal(createCacheStore({ store: 'file', file, logger: silentLogger }).kind, 'file');
     assert.equal(createCacheStore({ store: 'memory' }).kind, 'memory');
     assert.equal(createCacheStore({ store: 'redis', logger: silentLogger }).kind, 'memory');
+  });
+
+  it('loads a shared cache provider module when configured', () => {
+    const modulePath = tempSharedModule();
+    const store = createCacheStore({ store: 'shared', sharedModule: modulePath, logger: silentLogger });
+    store.set('k', { value: 1 }, 60_000);
+    assert.equal(store.kind, 'shared');
+    assert.deepEqual(store.get('k'), { value: 1 });
+  });
+
+  it('falls back to memory when shared cache provider is unavailable', () => {
+    const store = createCacheStore({ store: 'shared', sharedModule: '/tmp/not-found.cjs', logger: silentLogger });
+    assert.equal(store.kind, 'memory');
   });
 
   it('reuses a persisted cache across service instances and skips failed reads', async () => {

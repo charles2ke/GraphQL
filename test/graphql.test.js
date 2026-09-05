@@ -244,6 +244,45 @@ describe('GraphQL API', () => {
     assert.equal(result.data.portfolioOverview.errors[0].category, 'UNKNOWN');
     assert.equal(result.data.portfolioOverview.errors[0].status, null);
     assert.equal(result.data.portfolioOverview.errors[0].retryable, false);
-    assert.match(result.data.portfolioOverview.errors[0].message, /positions endpoint timed out/);
+    assert.equal(result.data.portfolioOverview.errors[0].message, 'Portfolio-Watcher connector request failed');
+  });
+
+  it('returns validation errors for invalid finance date range and pagination args', async () => {
+    const invalidDate = await execute('{ tradeHistory(from: "not-a-date") { trades { id } } }');
+    assert.equal(invalidDate.errors.length, 1);
+    assert.equal(invalidDate.errors[0].extensions.code, 'BAD_USER_INPUT');
+    assert.equal(invalidDate.errors[0].extensions.category, 'validation');
+
+    const emptyDate = await execute('{ tradeHistory(from: "") { trades { id } } }');
+    assert.equal(emptyDate.errors.length, 1);
+    assert.equal(emptyDate.errors[0].extensions.code, 'BAD_USER_INPUT');
+
+    const nonIsoDate = await execute('{ tradeHistory(from: "January 1, 2026") { trades { id } } }');
+    assert.equal(nonIsoDate.errors.length, 1);
+    assert.equal(nonIsoDate.errors[0].extensions.code, 'BAD_USER_INPUT');
+
+    const invalidRange = await execute('{ tradeHistory(from: "2026-02-01T00:00:00.000Z", to: "2026-01-01T00:00:00.000Z") { trades { id } } }');
+    assert.equal(invalidRange.errors.length, 1);
+    assert.equal(invalidRange.errors[0].extensions.code, 'BAD_USER_INPUT');
+
+    const invalidLimit = await execute('{ portfolioOverview(limit: -1) { pageInfo { totalCount } } }');
+    assert.equal(invalidLimit.errors.length, 1);
+    assert.equal(invalidLimit.errors[0].extensions.code, 'BAD_USER_INPUT');
+  });
+
+  it('maps unexpected finance resolver failures to api-safe internal errors', async () => {
+    finance = {
+      portfolioOverview: async () => {
+        throw new Error('database credentials leaked');
+      },
+      tradeHistory: async () => ({ trades: [], orders: [], taxEvents: [], pageInfo: { totalCount: 0, limit: 0, offset: 0, hasNextPage: false, hasPreviousPage: false }, errors: [] }),
+      taxEstimate: async () => ({ taxYear: 2026, currency: 'USD', totalProceeds: 0, totalCostBasis: 0, realizedGain: 0, estimatedTax: 0, taxRate: 0.22, events: [], pageInfo: { totalCount: 0, limit: 0, offset: 0, hasNextPage: false, hasPreviousPage: false }, errors: [] }),
+    };
+
+    const result = await execute('{ portfolioOverview { totalMarketValue } }');
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].message, 'Finance query failed. Please retry later.');
+    assert.equal(result.errors[0].extensions.code, 'INTERNAL_SERVER_ERROR');
+    assert.equal(result.errors[0].extensions.category, 'internal');
   });
 });

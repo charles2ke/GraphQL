@@ -146,8 +146,9 @@ The running server loads connector settings from the environment via
 | `TAX_BREAK_ENDPOINT` | tax-break endpoint placeholder | `mock://tax-break` |
 | `TAX_BREAK_API_KEY` | tax-break credential placeholder | empty |
 | `FINANCE_CACHE_TTL_MS` | Resolver cache TTL | `1000` |
-| `FINANCE_CACHE_STORE` | Cache strategy: `memory` or `file` (persistent) | `memory` |
+| `FINANCE_CACHE_STORE` | Cache strategy: `memory`, `file` (persistent), or `shared` | `memory` |
 | `FINANCE_CACHE_FILE` | Cache file used when `FINANCE_CACHE_STORE=file` | `.cache/finance-cache.json` |
+| `FINANCE_CACHE_SHARED_MODULE` | Optional shared cache provider module path used when `FINANCE_CACHE_STORE=shared` | empty |
 | `FINANCE_HTTP_TIMEOUT_MS` | Per-request upstream timeout | `5000` |
 | `FINANCE_HTTP_MAX_RETRIES` | Retries for timeouts, 429s, and 5xx responses | `2` |
 | `FINANCE_DEFAULT_PAGE_SIZE` | Default page size when `limit` is omitted | `25` |
@@ -158,7 +159,9 @@ Each connector endpoint that is **not** a `mock://` URL is served by the
 production HTTP client in `src/connectors/httpClient.js`, which adds bearer
 authentication, request timeouts, bounded retries with exponential backoff, and
 per-call metrics. Mock adapters remain the default so the service still runs
-from a clean checkout.
+from a clean checkout. Live endpoints require the corresponding `*_API_KEY`;
+when credentials are missing, connectors fail safely with a non-sensitive auth
+error and readiness reports `degraded`.
 
 Do not commit real credentials. Production connectors should read credentials
 from environment variables or a secret manager and keep the same method names as
@@ -245,6 +248,8 @@ Finance queries accept optional filters and offset pagination:
 
 Every finance payload includes `pageInfo { totalCount limit offset hasNextPage
 hasPreviousPage }`. Requested limits are clamped to `FINANCE_MAX_PAGE_SIZE`.
+Invalid date ranges (`from > to`) and malformed date/pagination inputs are
+rejected with `BAD_USER_INPUT` and `extensions.category = "validation"`.
 
 ```graphql
 query RecentSells {
@@ -272,6 +277,9 @@ query RecentSells {
   `retryable`. Those fields are returned on every payload's
   `errors { source code category status retryable message }`, so a partial
   response still explains what failed and whether retrying helps.
+- **API-safe taxonomy**: finance resolver input and internal failures are
+  normalized to GraphQL-safe categories: `validation`, `auth`, `upstream`, and
+  `internal`, with non-sensitive messages.
 - **Health**: `GET /health` is a liveness probe; `GET /ready` calls each
   connector's health check and returns `503` when any upstream is degraded.
 
@@ -283,6 +291,11 @@ Upstream reads go through a TTL cache selected by `FINANCE_CACHE_STORE`
 - `memory` (default): in-process, fastest, cleared on restart.
 - `file`: the same TTL semantics mirrored to `FINANCE_CACHE_FILE`, so a
   restarted process serves warm upstream data instead of refetching everything.
+- `shared`: optional provider loaded from `FINANCE_CACHE_SHARED_MODULE`. The
+  module must export `createSharedCacheStore()` returning a store with
+  `get(key)`, `set(key, value, ttlMs)`, and `clear()` methods (Redis-like
+  adapters can implement this contract). If loading fails, the service logs a
+  warning and falls back to `memory`.
 
 Concurrent resolvers asking for the same key share one in-flight request, and
 payloads containing upstream errors are never cached so a transient outage is
