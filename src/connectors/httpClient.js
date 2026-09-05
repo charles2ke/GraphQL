@@ -3,12 +3,15 @@ import { metrics as defaultMetrics } from '../observability/metrics.js';
 
 /** Error carrying the upstream source and HTTP status for actionable messages. */
 export class UpstreamHttpError extends Error {
-  constructor(source, message, { status = null, retryable = false } = {}) {
+  constructor(source, message, { status = null, retryable = false, kind = 'http' } = {}) {
     super(message);
     this.name = 'UpstreamHttpError';
     this.source = source;
     this.status = status;
     this.retryable = retryable;
+    // `kind` distinguishes transport failures (timeout/network) from HTTP
+    // responses so they can be classified without parsing the message.
+    this.kind = kind;
   }
 }
 
@@ -75,11 +78,18 @@ export function createHttpClient({
         try {
           return await once(path, { ...options, signal: controller.signal });
         } catch (error) {
-          lastError = error instanceof UpstreamHttpError
-            ? error
-            : new UpstreamHttpError(source, error?.name === 'AbortError' ? `request to ${path} timed out after ${timeoutMs}ms` : String(error?.message ?? error), { retryable: true });
+          if (error instanceof UpstreamHttpError) {
+            lastError = error;
+          } else {
+            const timedOut = error?.name === 'AbortError';
+            lastError = new UpstreamHttpError(
+              source,
+              timedOut ? `request to ${path} timed out after ${timeoutMs}ms` : String(error?.message ?? error),
+              { retryable: true, kind: timedOut ? 'timeout' : 'network' }
+            );
+          }
 
-          metrics.increment('finance_upstream_attempt_failures_total', { source, path });
+          metrics.increment('finance_upstream_attempt_failures_total', { source, path, kind: lastError.kind });
           logger.warn('upstream request failed', {
             source,
             path,

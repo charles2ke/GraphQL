@@ -1,5 +1,7 @@
+import { createCacheStore } from '../cache/index.js';
 import { createConnectors } from '../connectors/index.js';
 import { loadFinanceConfig } from '../config/finance.js';
+import { classifyUpstreamError } from '../observability/errors.js';
 import { logger as defaultLogger } from '../observability/logger.js';
 import { metrics as defaultMetrics } from '../observability/metrics.js';
 import {
@@ -18,25 +20,17 @@ import {
   paginate,
 } from '../domain/finance.js';
 
-function upstreamError(source, error) {
-  const message = error instanceof Error ? error.message : String(error);
-  return {
-    source,
-    code: error?.status ? `UPSTREAM_HTTP_${error.status}` : 'UPSTREAM_UNAVAILABLE',
-    message: `${source} connector failed: ${message}`,
-  };
-}
-
 export function createFinanceService({
   config = loadFinanceConfig(),
   connectors,
   cacheTtlMs = config.cacheTtlMs,
+  cacheStore,
   logger = defaultLogger,
   metrics = defaultMetrics,
 } = {}) {
   const upstreams = connectors ?? createConnectors({ config, logger, metrics });
   const pageLimits = { defaultLimit: config.defaultPageSize ?? 25, maxLimit: config.maxPageSize ?? 100 };
-  const cache = new Map();
+  const cache = cacheStore ?? createCacheStore({ store: config.cacheStore, file: config.cacheFile, logger });
   // Concurrent resolvers asking for the same upstream data share a single
   // in-flight request instead of fanning out duplicate connector calls.
   const inFlight = new Map();
@@ -47,31 +41,46 @@ export function createFinanceService({
       const data = await metrics.time('finance_connector_call', { source, operation }, task);
       return { data, error: null };
     } catch (error) {
-      logger.error('finance connector call failed', { source, operation, error: error?.message ?? String(error) });
-      return { data: [], error: upstreamError(source, error) };
+      const classified = classifyUpstreamError(source, error);
+      metrics.increment('finance_upstream_errors_total', {
+        source,
+        operation,
+        category: classified.category,
+        retryable: classified.retryable,
+      });
+      logger.error('finance connector call failed', {
+        source,
+        operation,
+        category: classified.category,
+        status: classified.status,
+        retryable: classified.retryable,
+        error: error?.message ?? String(error),
+      });
+      return { data: [], error: classified };
     }
   }
 
   async function cached(key, load) {
-    const now = Date.now();
     const hit = cache.get(key);
-    if (hit && hit.expiresAt > now) {
-      metrics.increment('finance_cache_total', { key, outcome: 'hit' });
-      return hit.value;
+    if (hit !== undefined) {
+      metrics.increment('finance_cache_total', { key, outcome: 'hit', store: cache.kind });
+      return hit;
     }
 
     const pending = inFlight.get(key);
     if (pending) {
-      metrics.increment('finance_cache_total', { key, outcome: 'coalesced' });
+      metrics.increment('finance_cache_total', { key, outcome: 'coalesced', store: cache.kind });
       return pending;
     }
 
-    metrics.increment('finance_cache_total', { key, outcome: 'miss' });
+    metrics.increment('finance_cache_total', { key, outcome: 'miss', store: cache.kind });
 
     const request = (async () => {
       try {
         const value = await load();
-        cache.set(key, { value, expiresAt: Date.now() + cacheTtlMs });
+        // Failed upstream reads are not cached: a transient outage should not
+        // pin an empty payload for the whole TTL.
+        if ((value.errors ?? []).length === 0) cache.set(key, value, cacheTtlMs);
         return value;
       } finally {
         inFlight.delete(key);
