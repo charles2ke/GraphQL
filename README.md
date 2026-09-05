@@ -132,7 +132,9 @@ The running server loads connector settings from the environment via
 | `PORTFOLIO_WATCHER_API_KEY` | Portfolio-Watcher credential placeholder | empty |
 | `TAX_BREAK_ENDPOINT` | tax-break endpoint placeholder | `mock://tax-break` |
 | `TAX_BREAK_API_KEY` | tax-break credential placeholder | empty |
-| `FINANCE_CACHE_TTL_MS` | Minimal resolver cache TTL | `1000` |
+| `FINANCE_CACHE_TTL_MS` | Resolver cache TTL | `1000` |
+| `FINANCE_CACHE_STORE` | Cache strategy: `memory` or `file` (persistent) | `memory` |
+| `FINANCE_CACHE_FILE` | Cache file used when `FINANCE_CACHE_STORE=file` | `.cache/finance-cache.json` |
 | `FINANCE_HTTP_TIMEOUT_MS` | Per-request upstream timeout | `5000` |
 | `FINANCE_HTTP_MAX_RETRIES` | Retries for timeouts, 429s, and 5xx responses | `2` |
 | `FINANCE_DEFAULT_PAGE_SIZE` | Default page size when `limit` is omitted | `25` |
@@ -247,14 +249,34 @@ query RecentSells {
   operation name, duration, outcome, and error codes.
 - **Metrics**: `src/observability/metrics.js` records GraphQL operation
   counts/latency, connector call counts/latency per source and operation,
-  upstream retry failures, and cache hit/miss/coalesced counters. Scrape them at
-  `GET /metrics`.
+  upstream retry failures, classified failures
+  (`finance_upstream_errors_total{source,operation,category,retryable}`), and
+  cache hit/miss/coalesced counters labelled with the active store. Scrape them
+  at `GET /metrics`.
+- **Error classification**: `src/observability/errors.js` maps every upstream
+  failure to a stable `category` (`AUTH`, `RATE_LIMIT`, `TIMEOUT`, `NETWORK`,
+  `UPSTREAM_CLIENT_ERROR`, `UPSTREAM_SERVER_ERROR`, `UNKNOWN`) plus `status` and
+  `retryable`. Those fields are returned on every payload's
+  `errors { source code category status retryable message }`, so a partial
+  response still explains what failed and whether retrying helps.
 - **Health**: `GET /health` is a liveness probe; `GET /ready` calls each
   connector's health check and returns `503` when any upstream is degraded.
 
+### Caching
+
+Upstream reads go through a TTL cache selected by `FINANCE_CACHE_STORE`
+(`src/cache/index.js`):
+
+- `memory` (default): in-process, fastest, cleared on restart.
+- `file`: the same TTL semantics mirrored to `FINANCE_CACHE_FILE`, so a
+  restarted process serves warm upstream data instead of refetching everything.
+
+Concurrent resolvers asking for the same key share one in-flight request, and
+payloads containing upstream errors are never cached so a transient outage is
+not pinned for the whole TTL.
+
 Follow-up production tasks:
 
-- Add persisted caching/batching if upstream latency becomes significant.
 - Move from offset pagination to cursor pagination if upstream APIs expose
   stable cursors.
 

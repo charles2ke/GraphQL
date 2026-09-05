@@ -103,6 +103,12 @@ export const typeDefs = /* GraphQL */ `
   type FinanceUpstreamError {
     source: String!
     code: String!
+    "Stable failure class: AUTH, RATE_LIMIT, TIMEOUT, NETWORK, UPSTREAM_CLIENT_ERROR, UPSTREAM_SERVER_ERROR or UNKNOWN."
+    category: String!
+    "HTTP status when the failure came from an upstream response."
+    status: Int
+    "True when retrying the request may succeed."
+    retryable: Boolean!
     message: String!
   }
 

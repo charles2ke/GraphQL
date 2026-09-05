@@ -27,6 +27,10 @@ export function loadFinanceConfig(env = process.env) {
       maxRetries,
     },
     cacheTtlMs: parseNonNegativeInt(env.FINANCE_CACHE_TTL_MS, 1000),
+    // `memory` keeps the cache in-process; `file` persists it so restarts and
+    // short-lived workers can reuse warm upstream data.
+    cacheStore: env.FINANCE_CACHE_STORE ?? 'memory',
+    cacheFile: env.FINANCE_CACHE_FILE ?? '.cache/finance-cache.json',
     defaultPageSize: Number(env.FINANCE_DEFAULT_PAGE_SIZE ?? 25),
     maxPageSize: Number(env.FINANCE_MAX_PAGE_SIZE ?? 100),
   };

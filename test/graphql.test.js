@@ -101,7 +101,7 @@ describe('GraphQL API', () => {
         performance { totalValue dayPnL totalPnL }
         totalMarketValue
         totalUnrealizedPnL
-        errors { source code message }
+        errors { source code category status retryable message }
       }
     }`);
 
@@ -231,7 +231,7 @@ describe('GraphQL API', () => {
         accounts { id name }
         positions { symbol }
         totalMarketValue
-        errors { source code message }
+        errors { source code category status retryable message }
       }
     }`);
 
@@ -240,7 +240,10 @@ describe('GraphQL API', () => {
     assert.deepEqual(result.data.portfolioOverview.positions, []);
     assert.equal(result.data.portfolioOverview.totalMarketValue, 0);
     assert.equal(result.data.portfolioOverview.errors[0].source, 'Portfolio-Watcher');
-    assert.equal(result.data.portfolioOverview.errors[0].code, 'UPSTREAM_UNAVAILABLE');
+    assert.equal(result.data.portfolioOverview.errors[0].code, 'UPSTREAM_UNKNOWN');
+    assert.equal(result.data.portfolioOverview.errors[0].category, 'UNKNOWN');
+    assert.equal(result.data.portfolioOverview.errors[0].status, null);
+    assert.equal(result.data.portfolioOverview.errors[0].retryable, false);
     assert.match(result.data.portfolioOverview.errors[0].message, /positions endpoint timed out/);
   });
 });
