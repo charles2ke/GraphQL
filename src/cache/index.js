@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import { logger as defaultLogger } from '../observability/logger.js';
@@ -37,6 +38,9 @@ export function createFileCacheStore({ file, logger = defaultLogger } = {}) {
   if (!file) throw new Error('file cache store requires a file path');
 
   const memory = new Map();
+  let writeChain = Promise.resolve();
+  let writing = false;
+  let dirty = false;
 
   function load() {
     try {
@@ -55,12 +59,29 @@ export function createFileCacheStore({ file, logger = defaultLogger } = {}) {
   }
 
   function persist() {
-    try {
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, JSON.stringify(Object.fromEntries(memory)));
-    } catch (error) {
-      logger.warn('persistent cache could not be written', { file, error: error?.message ?? String(error) });
-    }
+    dirty = true;
+    if (writing) return writeChain;
+
+    writing = true;
+    writeChain = (async () => {
+      try {
+        // Coalesce every update queued while a write is in flight into one pass.
+        while (dirty) {
+          dirty = false;
+          const payload = JSON.stringify(Object.fromEntries(memory));
+          await mkdir(dirname(file), { recursive: true });
+          const temporaryFile = `${file}.${process.pid}.tmp`;
+          await writeFile(temporaryFile, payload);
+          await rename(temporaryFile, file);
+        }
+      } catch (error) {
+        logger.warn('persistent cache could not be written', { file, error: error?.message ?? String(error) });
+      } finally {
+        writing = false;
+      }
+    })();
+
+    return writeChain;
   }
 
   load();
@@ -85,6 +106,10 @@ export function createFileCacheStore({ file, logger = defaultLogger } = {}) {
     clear() {
       memory.clear();
       persist();
+    },
+    /** Resolves once every queued write has been flushed to disk. */
+    flush() {
+      return writeChain;
     },
   };
 }

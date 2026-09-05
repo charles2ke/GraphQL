@@ -78,10 +78,11 @@ describe('cache strategies', () => {
     assert.equal(store.get('k'), undefined);
   });
 
-  it('persists entries to disk and reloads unexpired ones', () => {
+  it('persists entries to disk and reloads unexpired ones', async () => {
     const file = tempCacheFile();
     const store = createFileCacheStore({ file, logger: silentLogger });
     store.set('trading', { trades: [{ id: 't1' }] }, 60_000);
+    await store.flush();
 
     const reloaded = createFileCacheStore({ file, logger: silentLogger });
     assert.deepEqual(reloaded.get('trading'), { trades: [{ id: 't1' }] });
@@ -121,6 +122,7 @@ describe('cache strategies', () => {
 
     const options = { logger: silentLogger, cacheTtlMs: 60_000, cacheStore: createCacheStore({ store: 'file', file, logger: silentLogger }) };
     await createFinanceService({ ...options, connectors: connectors() }).portfolioOverview({});
+    await options.cacheStore.flush();
     const second = await createFinanceService({
       logger: silentLogger,
       cacheTtlMs: 60_000,
