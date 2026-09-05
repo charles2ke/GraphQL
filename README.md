@@ -35,6 +35,7 @@ website/
   src/backendSamples.js  # GraphQL server samples in 10 backend languages
   vite.config.js   # Vite config (GitHub Pages base path + /graphql dev proxy)
 .github/workflows/
+  ci.yml           # Backend tests plus website lint/build on push and PRs
   deploy-pages.yml # Builds website/ and publishes it to GitHub Pages
 ```
 
@@ -104,6 +105,18 @@ npm run lint                      # Oxlint
 ```bash
 npm test
 ```
+
+## Continuous integration
+
+The [`CI`](.github/workflows/ci.yml) workflow runs on every push to `main`, on
+every pull request, and on demand from the Actions tab. It has two jobs:
+
+- **Backend tests** — `npm ci` then `npm test` (node:test) at the repository root.
+- **Website lint and build** — `npm ci`, `npm run lint` (Oxlint) and
+  `GITHUB_PAGES=true npm run build` inside `website/`, matching what the Pages
+  deployment builds.
+
+Runs are grouped per branch and superseded runs are cancelled automatically.
 
 ## Finance Cluster Integration (Priority 1)
 
