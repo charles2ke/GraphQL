@@ -103,7 +103,7 @@ export function createHttpClient({
     source,
     endpoint: baseUrl,
     request,
-    /** Lightweight readiness probe used by the /health endpoint. */
+    /** Lightweight readiness probe used by the /ready endpoint. */
     async health() {
       try {
         await request('/health');

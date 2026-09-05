@@ -119,18 +119,16 @@ export function createFinanceService({
     return { events: mapped.data, errors: mapped.error ? [mapped.error] : [] };
   }
 
-  /** Full (unpaginated) filtered history, shared by tradeHistory and taxEstimate. */
+  /** Full (unpaginated) filtered trading history shared by tradeHistory and taxEstimate. */
   async function collectHistory(filter = {}) {
     const trading = await getTradingData();
     const trades = filterTrades(trading.trades, filter);
     const orders = filterOrders(trading.orders, filter);
-    const taxEvents = await mapTaxEvents(trades);
 
     return {
       trades,
       orders,
-      taxEvents: filterTaxEvents(taxEvents.events, filter),
-      errors: [...trading.errors, ...taxEvents.errors],
+      errors: [...trading.errors],
     };
   }
 
@@ -153,32 +151,35 @@ export function createFinanceService({
     async tradeHistory({ limit, offset, ...filter } = {}) {
       const history = await collectHistory(filter);
       const trades = paginate(history.trades, { limit, offset }, pageLimits);
+      const taxEvents = await mapTaxEvents(trades.items);
       const tradeIds = new Set(trades.items.map((trade) => trade.id));
 
       return {
         trades: trades.items,
         orders: paginate(history.orders, { limit, offset }, pageLimits).items,
-        taxEvents: history.taxEvents.filter((event) => tradeIds.has(event.tradeId)),
+        taxEvents: filterTaxEvents(taxEvents.events, filter).filter((event) => tradeIds.has(event.tradeId)),
         pageInfo: trades.pageInfo,
-        errors: history.errors,
+        errors: [...history.errors, ...taxEvents.errors],
       };
     },
 
     async taxEstimate({ taxYear, limit, offset, ...filter } = {}) {
       const history = await collectHistory(filter);
-      const estimate = await capture('tax-break', 'estimateTax', () => upstreams.taxBreak.estimateTax({ events: history.taxEvents, taxYear }));
-      const summary = estimate.error ? estimateTaxFromEvents(history.taxEvents, taxYear) : estimate.data;
+      const taxEvents = await mapTaxEvents(history.trades);
+      const filteredEvents = filterTaxEvents(taxEvents.events, filter);
+      const estimate = await capture('tax-break', 'estimateTax', () => upstreams.taxBreak.estimateTax({ events: filteredEvents, taxYear }));
+      const summary = estimate.error ? estimateTaxFromEvents(filteredEvents, taxYear) : estimate.data;
       const events = paginate(summary.events ?? [], { limit, offset }, pageLimits);
 
       return {
         ...summary,
         events: events.items,
         pageInfo: events.pageInfo,
-        errors: [...history.errors, estimate.error].filter(Boolean),
+        errors: [...history.errors, ...taxEvents.errors, estimate.error].filter(Boolean),
       };
     },
 
-    /** Aggregated upstream readiness used by the HTTP /health endpoint. */
+    /** Aggregated upstream readiness used by the HTTP /ready endpoint. */
     async health() {
       const checks = await Promise.all(
         Object.values(upstreams).map(async (connector) => {

@@ -12,7 +12,7 @@ const PORT = Number(process.env.PORT) || 4000;
 
 /** Starts the HTTP server exposing the GraphQL endpoint at /graphql. */
 async function main() {
-  const apolloServer = createApolloServer({ logger, metrics });
+  const apolloServer = createApolloServer({ logger, metrics, enableObservability: true });
   await apolloServer.start();
 
   const app = express();

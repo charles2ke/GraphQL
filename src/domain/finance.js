@@ -119,8 +119,11 @@ export function withinRange(timestamp, { from, to } = {}) {
 
   const value = new Date(timestamp).getTime();
   if (Number.isNaN(value)) return false;
-  if (from && value < new Date(from).getTime()) return false;
-  if (to && value > new Date(to).getTime()) return false;
+  const fromValue = from ? new Date(from).getTime() : null;
+  const toValue = to ? new Date(to).getTime() : null;
+  if ((from && Number.isNaN(fromValue)) || (to && Number.isNaN(toValue))) return false;
+  if (fromValue !== null && value < fromValue) return false;
+  if (toValue !== null && value > toValue) return false;
   return true;
 }
 

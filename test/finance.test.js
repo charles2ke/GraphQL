@@ -153,6 +153,8 @@ describe('finance filtering and pagination', () => {
     );
     assert.equal(withinRange('2026-01-10T14:31:00.000Z', { from: '2026-01-10T14:31:00.000Z' }), true);
     assert.equal(withinRange('not-a-date', { from: '2026-01-01T00:00:00.000Z' }), false);
+    assert.equal(withinRange('2026-01-10T14:31:00.000Z', { from: 'not-a-date' }), false);
+    assert.equal(withinRange('2026-01-10T14:31:00.000Z', { to: 'not-a-date' }), false);
   });
 
   it('paginates with clamped limits and reports page metadata', () => {
@@ -192,5 +194,39 @@ describe('finance service health', () => {
     const health = await finance.health();
     assert.equal(health.status, 'degraded');
     assert.equal(health.upstreams.find((check) => check.source === 'Portfolio-Watcher').status, 'degraded');
+  });
+});
+
+describe('finance service pagination behavior', () => {
+  it('maps tax events only for the paginated trade history page', async () => {
+    const mappedTradeIds = [];
+    const finance = createFinanceService({
+      connectors: {
+        openTrading: {
+          listAccounts: async () => [{ acct_id: 'acct-1', display_name: 'Primary', source: 'OpenTrading' }],
+          listTrades: async () => [
+            { trade_id: 'trade-1', acct_id: 'acct-1', order_ref: 'order-1', ticker: 'AAPL', action: 'BUY', qty: 2, avg_px: 150, trade_time: '2026-01-10T14:31:00.000Z' },
+            { trade_id: 'trade-2', acct_id: 'acct-1', order_ref: 'order-2', ticker: 'AAPL', action: 'SELL', qty: 4, avg_px: 180, trade_time: '2026-04-05T15:45:00.000Z' },
+          ],
+          listOrders: async () => [],
+        },
+        portfolioWatcher: {
+          listPositions: async () => [],
+          listPerformanceSnapshots: async () => [],
+        },
+        taxBreak: {
+          mapTradesToTaxEvents: async (pageTrades) => {
+            mappedTradeIds.push(pageTrades.map((trade) => trade.id));
+            return pageTrades.map(tradeToTaxEvent);
+          },
+          estimateTax: async () => ({}),
+        },
+      },
+    });
+
+    const result = await finance.tradeHistory({ limit: 1, offset: 1 });
+    assert.deepEqual(result.trades.map((trade) => trade.id), ['trade-2']);
+    assert.deepEqual(mappedTradeIds, [['trade-2']]);
+    assert.deepEqual(result.taxEvents.map((event) => event.tradeId), ['trade-2']);
   });
 });
