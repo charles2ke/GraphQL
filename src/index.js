@@ -3,6 +3,7 @@ import cors from 'cors';
 import express from 'express';
 
 import { store } from './data/store.js';
+import { createExportRouter } from './export/router.js';
 import { logger } from './observability/logger.js';
 import { metrics } from './observability/metrics.js';
 import { financeService } from './services/financeService.js';
@@ -31,6 +32,9 @@ async function main() {
   app.get('/metrics', (_req, res) => {
     res.set('content-type', 'text/plain; version=0.0.4').send(metrics.toPrometheus());
   });
+
+  // Spreadsheet downloads (.xlsx) for the same data the GraphQL API serves.
+  app.use('/export', cors(), createExportRouter({ store, finance: financeService, logger }));
 
   app.use(
     '/graphql',
