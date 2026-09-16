@@ -34,7 +34,7 @@ function escapeXml(value) {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;')
-      // Control characters are illegal in XML 1.0 and would corrupt the file.
+      // XML-forbidden control characters and noncharacters would corrupt the file.
       .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, '')
   );
 }
