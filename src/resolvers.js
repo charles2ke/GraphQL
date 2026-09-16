@@ -1,24 +1,6 @@
 import { GraphQLError } from 'graphql';
 
-function isIsoDate(value) {
-  const match = typeof value === 'string' && value.match(/^(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/);
-  if (!match) return false;
-  const calendarDate = new Date(`${match[1]}T00:00:00.000Z`);
-  return Number.isFinite(calendarDate.getTime()) && calendarDate.toISOString().startsWith(match[1]) && Number.isFinite(new Date(value).getTime());
-}
-
-function validateFinanceArgs(args, { requireTaxYear = false } = {}) {
-  const issues = [];
-  if (args.from !== undefined && args.from !== null && !isIsoDate(args.from)) issues.push('from must be a valid ISO-8601 date');
-  if (args.to !== undefined && args.to !== null && !isIsoDate(args.to)) issues.push('to must be a valid ISO-8601 date');
-  if (isIsoDate(args.from) && isIsoDate(args.to) && new Date(args.from).getTime() > new Date(args.to).getTime()) {
-    issues.push('from must be earlier than or equal to to');
-  }
-  if (args.limit !== undefined && args.limit !== null && args.limit < 0) issues.push('limit must be greater than or equal to 0');
-  if (args.offset !== undefined && args.offset !== null && args.offset < 0) issues.push('offset must be greater than or equal to 0');
-  if (requireTaxYear && (args.taxYear < 1900 || args.taxYear > 9999)) issues.push('taxYear must be between 1900 and 9999');
-  return issues;
-}
+import { validateFinanceArgs } from './validation/financeArgs.js';
 
 async function runFinanceResolver(name, args, context, resolve, options = {}) {
   const issues = validateFinanceArgs(args, options);

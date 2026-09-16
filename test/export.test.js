@@ -163,6 +163,29 @@ describe('export datasets', () => {
     await assert.rejects(() => loadDataset('tax-estimate', {}, { store, finance }), /taxYear/);
   });
 
+  it('rejects invalid finance query parameters before loading data', async () => {
+    const calls = [];
+    finance = {
+      portfolioOverview: async () => {
+        calls.push('portfolio');
+      },
+      tradeHistory: async () => {
+        calls.push('trades');
+      },
+      taxEstimate: async () => {
+        calls.push('tax');
+      },
+    };
+
+    await assert.rejects(() => loadDataset('trades', { limit: 'abc' }, { store, finance }), { statusCode: 400 });
+    await assert.rejects(() => loadDataset('trades', { limit: '2.5' }, { store, finance }), { statusCode: 400 });
+    await assert.rejects(() => loadDataset('trades', { offset: '-1' }, { store, finance }), { statusCode: 400 });
+    await assert.rejects(() => loadDataset('portfolio', { from: 'not-a-date' }, { store, finance }), { statusCode: 400 });
+    await assert.rejects(() => loadDataset('tax-estimate', { taxYear: '2024x' }, { store, finance }), { statusCode: 400 });
+
+    assert.deepEqual(calls, []);
+  });
+
   it('rejects unknown datasets', async () => {
     await assert.rejects(() => loadDataset('nope', {}, { store, finance }), (error) => {
       assert.equal(error.statusCode, 404);
@@ -192,6 +215,17 @@ describe('export router', () => {
     assert.equal(response.headers['content-type'], XLSX_CONTENT_TYPE);
     assert.equal(response.headers['content-disposition'], 'attachment; filename="users.xlsx"');
     assert.match(readZip(response.body).get('xl/worksheets/sheet1.xml'), /Ada Lovelace/);
+  });
+
+  it('rejects invalid query parameters and oversized exports', async () => {
+    const invalidLimit = await callRouter(router, { path: '/trades', query: { limit: 'abc' } });
+    const tinyRouter = createExportRouter({ store: createStore(), finance: createFinanceService(), maxExportRows: 1 });
+    const tooLarge = await callRouter(tinyRouter, { path: '/users' });
+
+    assert.equal(invalidLimit.status, 400);
+    assert.match(invalidLimit.body.error, /limit/);
+    assert.equal(tooLarge.status, 413);
+    assert.match(tooLarge.body.error, /exceeds the limit/);
   });
 
   it('returns 404 for unknown datasets and 400 for missing parameters', async () => {

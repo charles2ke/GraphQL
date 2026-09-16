@@ -5,27 +5,57 @@
  * rows from the same store/finance service the GraphQL resolvers use, so an
  * export always matches what the API returns.
  */
+import { isGraphQLInt, validateFinanceArgs } from '../validation/financeArgs.js';
 
 /** Parses the shared pagination/filter query parameters of an export request. */
-function readParams(params = {}) {
-  const optionalInt = (value) => {
-    if (value === undefined || value === null || value === '') return undefined;
-    const parsed = Number.parseInt(value, 10);
-    return Number.isNaN(parsed) ? undefined : parsed;
+function readParams(params = {}, options = {}) {
+  const issues = [];
+  const optionalInt = (name) => {
+    if (!Object.hasOwn(params, name) || params[name] === undefined || params[name] === null) return undefined;
+    const raw = params[name];
+    if (Array.isArray(raw) || raw === '') {
+      issues.push(`${name} must be an integer`);
+      return undefined;
+    }
+    const value = String(raw);
+    if (!/^-?\d+$/.test(value)) {
+      issues.push(`${name} must be an integer`);
+      return undefined;
+    }
+    const parsed = Number(value);
+    if (!isGraphQLInt(parsed)) {
+      issues.push(`${name} must be a 32-bit integer`);
+      return undefined;
+    }
+    return parsed;
   };
-  const optionalString = (value) => (typeof value === 'string' && value !== '' ? value : undefined);
+  const optionalString = (name) => {
+    if (!Object.hasOwn(params, name) || params[name] === undefined || params[name] === null) return undefined;
+    if (Array.isArray(params[name])) {
+      issues.push(`${name} must be a string`);
+      return undefined;
+    }
+    return String(params[name]);
+  };
 
-  return {
-    accountId: optionalString(params.accountId),
-    symbol: optionalString(params.symbol),
-    side: optionalString(params.side),
-    status: optionalString(params.status),
-    from: optionalString(params.from),
-    to: optionalString(params.to),
-    limit: optionalInt(params.limit),
-    offset: optionalInt(params.offset),
-    taxYear: optionalInt(params.taxYear),
+  const parsed = {
+    accountId: optionalString('accountId'),
+    symbol: optionalString('symbol'),
+    side: optionalString('side'),
+    status: optionalString('status'),
+    from: optionalString('from'),
+    to: optionalString('to'),
+    limit: optionalInt('limit'),
+    offset: optionalInt('offset'),
+    taxYear: optionalInt('taxYear'),
   };
+
+  issues.push(...validateFinanceArgs(parsed, options));
+  if (issues.length > 0) {
+    throw Object.assign(new Error(`invalid export query parameters: ${issues.join('; ')}`), { statusCode: 400 });
+  }
+
+  return parsed;
 }
 
 const USER_COLUMNS = [
@@ -146,6 +176,7 @@ export const datasets = {
 
   portfolio: {
     filename: 'portfolio-overview',
+    financeArgs: true,
     async load(params, { finance }) {
       const overview = await finance.portfolioOverview(params);
       return {
@@ -161,6 +192,7 @@ export const datasets = {
 
   trades: {
     filename: 'trade-history',
+    financeArgs: true,
     async load(params, { finance }) {
       const history = await finance.tradeHistory(params);
       return {
@@ -176,6 +208,7 @@ export const datasets = {
 
   'tax-estimate': {
     filename: 'tax-estimate',
+    financeArgs: { requireTaxYear: true },
     async load(params, { finance }) {
       if (params.taxYear === undefined) {
         throw Object.assign(new Error('taxYear query parameter is required'), { statusCode: 400 });
@@ -219,6 +252,7 @@ export async function loadDataset(name, params, context) {
     throw Object.assign(new Error(`unknown dataset "${name}"`), { statusCode: 404, datasets: datasetNames });
   }
 
-  const result = await dataset.load(readParams(params), context);
+  const parsedParams = dataset.financeArgs ? readParams(params, dataset.financeArgs === true ? {} : dataset.financeArgs) : {};
+  const result = await dataset.load(parsedParams, context);
   return { filename: dataset.filename, ...result };
 }
