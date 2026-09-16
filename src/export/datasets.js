@@ -8,7 +8,7 @@
 import { isGraphQLInt, validateFinanceArgs } from '../validation/financeArgs.js';
 
 /** Parses the shared pagination/filter query parameters of an export request. */
-function readParams(params = {}, options = {}, { validate = true } = {}) {
+function readParams(params = {}, { validate = false, requireTaxYear = false } = {}) {
   const issues = [];
   const optionalInt = (name) => {
     if (!Object.hasOwn(params, name) || params[name] === undefined || params[name] === null) return undefined;
@@ -50,7 +50,7 @@ function readParams(params = {}, options = {}, { validate = true } = {}) {
     taxYear: optionalInt('taxYear'),
   };
 
-  if (validate) issues.push(...validateFinanceArgs(parsed, options));
+  if (validate) issues.push(...validateFinanceArgs(parsed, { requireTaxYear }));
   if (issues.length > 0) {
     throw Object.assign(new Error(`invalid export query parameters: ${issues.join('; ')}`), { statusCode: 400 });
   }
@@ -176,7 +176,7 @@ export const datasets = {
 
   portfolio: {
     filename: 'portfolio-overview',
-    financeArgs: true,
+    financeArgs: { validate: true },
     async load(params, { finance }) {
       const overview = await finance.portfolioOverview(params);
       return {
@@ -192,7 +192,7 @@ export const datasets = {
 
   trades: {
     filename: 'trade-history',
-    financeArgs: true,
+    financeArgs: { validate: true },
     async load(params, { finance }) {
       const history = await finance.tradeHistory(params);
       return {
@@ -208,7 +208,7 @@ export const datasets = {
 
   'tax-estimate': {
     filename: 'tax-estimate',
-    financeArgs: { requireTaxYear: true },
+    financeArgs: { validate: true, requireTaxYear: true },
     async load(params, { finance }) {
       if (params.taxYear === undefined) {
         throw Object.assign(new Error('taxYear query parameter is required'), { statusCode: 400 });
@@ -252,9 +252,7 @@ export async function loadDataset(name, params, context) {
     throw Object.assign(new Error(`unknown dataset "${name}"`), { statusCode: 404, datasets: datasetNames });
   }
 
-  const parsedParams = readParams(params, dataset.financeArgs === true ? {} : dataset.financeArgs || {}, {
-    validate: Boolean(dataset.financeArgs),
-  });
+  const parsedParams = readParams(params, dataset.financeArgs);
   const result = await dataset.load(parsedParams, context);
   return { filename: dataset.filename, ...result };
 }
