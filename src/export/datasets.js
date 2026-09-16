@@ -8,7 +8,7 @@
 import { isGraphQLInt, validateFinanceArgs } from '../validation/financeArgs.js';
 
 /** Parses the shared pagination/filter query parameters of an export request. */
-function readParams(params = {}, options = {}) {
+function readParams(params = {}, options = {}, { validate = true } = {}) {
   const issues = [];
   const optionalInt = (name) => {
     if (!Object.hasOwn(params, name) || params[name] === undefined || params[name] === null) return undefined;
@@ -50,7 +50,7 @@ function readParams(params = {}, options = {}) {
     taxYear: optionalInt('taxYear'),
   };
 
-  issues.push(...validateFinanceArgs(parsed, options));
+  if (validate) issues.push(...validateFinanceArgs(parsed, options));
   if (issues.length > 0) {
     throw Object.assign(new Error(`invalid export query parameters: ${issues.join('; ')}`), { statusCode: 400 });
   }
@@ -252,7 +252,9 @@ export async function loadDataset(name, params, context) {
     throw Object.assign(new Error(`unknown dataset "${name}"`), { statusCode: 404, datasets: datasetNames });
   }
 
-  const parsedParams = dataset.financeArgs ? readParams(params, dataset.financeArgs === true ? {} : dataset.financeArgs) : {};
+  const parsedParams = readParams(params, dataset.financeArgs === true ? {} : dataset.financeArgs || {}, {
+    validate: Boolean(dataset.financeArgs),
+  });
   const result = await dataset.load(parsedParams, context);
   return { filename: dataset.filename, ...result };
 }
