@@ -106,7 +106,9 @@ describe('cors configuration', () => {
       const routes = [
         { path: '/export', init: {} },
         {
-          path: '/graphql/stream',
+          // A valid one-shot query completes and closes the response itself,
+          // instead of leaving an SSE stream open for the test to clean up.
+          path: `/graphql/stream?query=${encodeURIComponent('{ __typename }')}`,
           init: { headers: { accept: 'text/event-stream' }, method: 'GET' },
         },
         {
@@ -120,27 +122,33 @@ describe('cors configuration', () => {
       ];
 
       for (const { path, init } of routes) {
+        const allowedController = new AbortController();
         const allowed = await fetch(`${baseUrl}${path}`, {
           ...init,
           headers: { ...init.headers, origin: 'https://app.example' },
+          signal: allowedController.signal,
         });
         assert.equal(
           allowed.headers.get('access-control-allow-origin'),
           'https://app.example',
           `${path} should echo the allowed origin`
         );
-        if (allowed.body) await allowed.body.cancel();
+        allowedController.abort();
+        await allowed.body?.cancel().catch(() => {});
 
+        const deniedController = new AbortController();
         const denied = await fetch(`${baseUrl}${path}`, {
           ...init,
           headers: { ...init.headers, origin: 'https://evil.example' },
+          signal: deniedController.signal,
         });
         assert.equal(
           denied.headers.get('access-control-allow-origin'),
           null,
           `${path} should not echo a denied origin`
         );
-        if (denied.body) await denied.body.cancel();
+        deniedController.abort();
+        await denied.body?.cancel().catch(() => {});
       }
     });
   });
