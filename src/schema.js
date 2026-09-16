@@ -1,3 +1,7 @@
+import { makeExecutableSchema } from '@graphql-tools/schema';
+
+import { resolvers } from './resolvers.js';
+
 /** GraphQL schema definition for the demo service. */
 export const typeDefs = /* GraphQL */ `
   "A person who can author posts."
@@ -208,4 +212,20 @@ export const typeDefs = /* GraphQL */ `
     createUser(name: String!, email: String!): User!
     createPost(title: String!, content: String!, authorId: ID!): Post!
   }
+
+  "Streaming operations delivered over Server-Sent Events at /graphql/stream."
+  type Subscription {
+    "Emitted whenever a user is created."
+    userCreated: User!
+    "Emitted whenever a post is created, optionally filtered by author."
+    postCreated(authorId: ID): Post!
+  }
 `;
+
+/**
+ * Builds the executable schema. Apollo Server and the SSE streaming endpoint
+ * share the same instance so subscriptions and queries stay in sync.
+ */
+export function createSchema() {
+  return makeExecutableSchema({ typeDefs, resolvers });
+}

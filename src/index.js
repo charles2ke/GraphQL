@@ -6,14 +6,18 @@ import { store } from './data/store.js';
 import { createExportRouter } from './export/router.js';
 import { logger } from './observability/logger.js';
 import { metrics } from './observability/metrics.js';
+import { createSchema } from './schema.js';
 import { financeService } from './services/financeService.js';
 import { createApolloServer } from './server.js';
+import { pubsub } from './streaming/pubsub.js';
+import { createStreamRouter } from './streaming/sseRouter.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 
 /** Starts the HTTP server exposing the GraphQL endpoint at /graphql. */
 async function main() {
-  const apolloServer = createApolloServer({ logger, metrics, enableObservability: true });
+  const schema = createSchema();
+  const apolloServer = createApolloServer({ schema, logger, metrics, enableObservability: true });
   await apolloServer.start();
 
   const app = express();
@@ -36,18 +40,33 @@ async function main() {
   // Spreadsheet downloads (.xlsx) for the same data the GraphQL API serves.
   app.use('/export', cors(), createExportRouter({ store, finance: financeService, logger }));
 
+  // Streaming endpoint (Server-Sent Events) for subscriptions and one-shot
+  // operations, mounted before /graphql so it keeps its own body parsing.
+  app.use(
+    '/graphql/stream',
+    cors(),
+    express.json(),
+    createStreamRouter({
+      schema,
+      logger,
+      metrics,
+      contextValue: () => ({ store, finance: financeService, logger, metrics, pubsub }),
+    })
+  );
+
   app.use(
     '/graphql',
     cors(),
     express.json(),
     expressMiddleware(apolloServer, {
       // Every request shares the same in-memory store.
-      context: async () => ({ store, finance: financeService, logger, metrics }),
+      context: async () => ({ store, finance: financeService, logger, metrics, pubsub }),
     })
   );
 
   await new Promise((resolve) => app.listen(PORT, resolve));
   logger.info('graphql endpoint ready', { url: `http://localhost:${PORT}/graphql` });
+  logger.info('graphql stream endpoint ready', { url: `http://localhost:${PORT}/graphql/stream` });
 }
 
 main().catch((error) => {
