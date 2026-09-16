@@ -8,23 +8,26 @@
 import { isGraphQLInt, validateFinanceArgs } from '../validation/financeArgs.js';
 
 /** Parses the shared pagination/filter query parameters of an export request. */
-function readParams(params = {}, { validate = false, requireTaxYear = false } = {}) {
+function readParams(params = {}, { datasetName = 'export', validate = false, requireTaxYear = false } = {}) {
   const issues = [];
+  const addIssue = (message) => {
+    if (validate) issues.push(message);
+  };
   const optionalInt = (name) => {
     if (!Object.hasOwn(params, name) || params[name] === undefined || params[name] === null) return undefined;
     const raw = params[name];
     if (Array.isArray(raw) || raw === '') {
-      issues.push(`${name} must be an integer`);
+      addIssue(`${name} must be an integer`);
       return undefined;
     }
     const value = String(raw);
     if (!/^-?\d+$/.test(value)) {
-      issues.push(`${name} must be an integer`);
+      addIssue(`${name} must be an integer`);
       return undefined;
     }
     const parsed = Number(value);
     if (!isGraphQLInt(parsed)) {
-      issues.push(`${name} must be a 32-bit integer`);
+      addIssue(`${name} must be a 32-bit integer`);
       return undefined;
     }
     return parsed;
@@ -32,7 +35,7 @@ function readParams(params = {}, { validate = false, requireTaxYear = false } = 
   const optionalString = (name) => {
     if (!Object.hasOwn(params, name) || params[name] === undefined || params[name] === null) return undefined;
     if (Array.isArray(params[name])) {
-      issues.push(`${name} must be a string`);
+      addIssue(`${name} must be a string`);
       return undefined;
     }
     return String(params[name]);
@@ -52,10 +55,20 @@ function readParams(params = {}, { validate = false, requireTaxYear = false } = 
 
   if (validate) issues.push(...validateFinanceArgs(parsed, { requireTaxYear }));
   if (issues.length > 0) {
-    throw Object.assign(new Error(`invalid export query parameters: ${issues.join('; ')}`), { statusCode: 400 });
+    throw Object.assign(new Error(`invalid query parameters for ${datasetName} export: ${issues.join('; ')}`), { statusCode: 400 });
   }
 
   return parsed;
+}
+
+function countRows(sheets) {
+  return sheets.reduce((total, sheet) => total + (sheet.rows?.length ?? 0), 0);
+}
+
+function enforceRowLimit(rowCount, maxRows) {
+  if (maxRows !== undefined && rowCount > maxRows) {
+    throw Object.assign(new Error(`export contains ${rowCount} rows, which exceeds the limit of ${maxRows}`), { statusCode: 413 });
+  }
 }
 
 const USER_COLUMNS = [
@@ -142,8 +155,9 @@ const TAX_EVENT_COLUMNS = [
 export const datasets = {
   users: {
     filename: 'users',
-    async load(_params, { store }) {
+    async load(_params, { store, maxExportRows }) {
       const users = store.listUsers();
+      enforceRowLimit(users.length, maxExportRows);
       return {
         sheets: [
           {
@@ -158,13 +172,15 @@ export const datasets = {
 
   posts: {
     filename: 'posts',
-    async load(_params, { store }) {
+    async load(_params, { store, maxExportRows }) {
+      const posts = store.listPosts();
+      enforceRowLimit(posts.length, maxExportRows);
       return {
         sheets: [
           {
             name: 'Posts',
             columns: POST_COLUMNS,
-            rows: store.listPosts().map((post) => ({
+            rows: posts.map((post) => ({
               ...post,
               authorName: store.getUser(post.authorId)?.name ?? '',
             })),
@@ -252,7 +268,8 @@ export async function loadDataset(name, params, context) {
     throw Object.assign(new Error(`unknown dataset "${name}"`), { statusCode: 404, datasets: datasetNames });
   }
 
-  const parsedParams = readParams(params, dataset.financeArgs);
+  const parsedParams = readParams(params, { datasetName: name, ...dataset.financeArgs });
   const result = await dataset.load(parsedParams, context);
+  enforceRowLimit(countRows(result.sheets), context.maxExportRows);
   return { filename: dataset.filename, ...result };
 }

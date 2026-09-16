@@ -13,10 +13,6 @@ const ERROR_COLUMNS = [
 ];
 const DEFAULT_MAX_EXPORT_ROWS = 10000;
 
-function countRows(sheets) {
-  return sheets.reduce((total, sheet) => total + (sheet.rows?.length ?? 0), 0);
-}
-
 /**
  * Express router exposing spreadsheet downloads.
  *
@@ -36,14 +32,10 @@ export function createExportRouter({ store, finance, logger, maxExportRows = DEF
     const name = req.params.dataset.replace(/\.xlsx$/i, '');
 
     try {
-      const { filename, sheets, errors = [] } = await loadDataset(name, req.query, { store, finance });
+      const { filename, sheets, errors = [] } = await loadDataset(name, req.query, { store, finance, maxExportRows });
       // Partial finance results carry upstream errors; surface them in the
       // workbook instead of silently shipping incomplete data.
       const allSheets = errors.length > 0 ? [...sheets, { name: 'Errors', columns: ERROR_COLUMNS, rows: errors }] : sheets;
-      const rowCount = countRows(allSheets);
-      if (rowCount > maxExportRows) {
-        throw Object.assign(new Error(`export contains ${rowCount} rows, which exceeds the limit of ${maxExportRows}`), { statusCode: 413 });
-      }
       const workbook = buildWorkbook({ sheets: allSheets });
 
       res.set('content-type', XLSX_CONTENT_TYPE);

@@ -135,7 +135,7 @@ describe('export datasets', () => {
   });
 
   it('exports users with their post counts', async () => {
-    const { sheets } = await loadDataset('users', {}, { store, finance });
+    const { sheets } = await loadDataset('users', { from: 'not-a-date', limit: 'abc' }, { store, finance });
 
     assert.equal(sheets.length, 1);
     assert.equal(sheets[0].rows.length, 2);
@@ -224,6 +224,7 @@ describe('export router', () => {
 
     assert.equal(invalidLimit.status, 400);
     assert.match(invalidLimit.body.error, /limit/);
+    assert.match(invalidLimit.body.error, /trades export/);
     assert.equal(tooLarge.status, 413);
     assert.match(tooLarge.body.error, /exceeds the limit/);
   });
