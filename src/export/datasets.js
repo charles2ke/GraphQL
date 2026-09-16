@@ -155,9 +155,8 @@ const TAX_EVENT_COLUMNS = [
 export const datasets = {
   users: {
     filename: 'users',
-    async load(_params, { store, maxExportRows }) {
+    async load(_params, { store }) {
       const users = store.listUsers();
-      enforceRowLimit(users.length, maxExportRows);
       return {
         sheets: [
           {
@@ -172,9 +171,8 @@ export const datasets = {
 
   posts: {
     filename: 'posts',
-    async load(_params, { store, maxExportRows }) {
+    async load(_params, { store }) {
       const posts = store.listPosts();
-      enforceRowLimit(posts.length, maxExportRows);
       return {
         sheets: [
           {
@@ -226,10 +224,6 @@ export const datasets = {
     filename: 'tax-estimate',
     financeArgs: { validate: true, requireTaxYear: true },
     async load(params, { finance }) {
-      if (params.taxYear === undefined) {
-        throw Object.assign(new Error('taxYear query parameter is required'), { statusCode: 400 });
-      }
-
       const summary = await finance.taxEstimate(params);
       return {
         sheets: [
