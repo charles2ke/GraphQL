@@ -2,6 +2,7 @@ import { expressMiddleware } from '@as-integrations/express4';
 import cors from 'cors';
 import express from 'express';
 
+import { loadCorsOptions } from './config/cors.js';
 import { store } from './data/store.js';
 import { createExportRouter } from './export/router.js';
 import { logger } from './observability/logger.js';
@@ -22,6 +23,10 @@ async function main() {
 
   const app = express();
 
+  // Cross-origin access is restricted to the CORS_ALLOWED_ORIGINS allow-list so
+  // a malicious page can never read GraphQL or export responses.
+  const corsOptions = loadCorsOptions();
+
   // Liveness probe: the process is up and serving.
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
@@ -38,13 +43,17 @@ async function main() {
   });
 
   // Spreadsheet downloads (.xlsx) for the same data the GraphQL API serves.
-  app.use('/export', cors(), createExportRouter({ store, finance: financeService, logger }));
+  app.use(
+    '/export',
+    cors(corsOptions),
+    createExportRouter({ store, finance: financeService, logger })
+  );
 
   // Streaming endpoint (Server-Sent Events) for subscriptions and one-shot
   // operations, mounted before /graphql so it keeps its own body parsing.
   app.use(
     '/graphql/stream',
-    cors(),
+    cors(corsOptions),
     express.json(),
     createStreamRouter({
       schema,
@@ -56,7 +65,7 @@ async function main() {
 
   app.use(
     '/graphql',
-    cors(),
+    cors(corsOptions),
     express.json(),
     expressMiddleware(apolloServer, {
       // Every request shares the same in-memory store.

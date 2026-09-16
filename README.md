@@ -160,6 +160,7 @@ The running server loads connector settings from the environment via
 | `FINANCE_DEFAULT_PAGE_SIZE` | Default page size when `limit` is omitted | `25` |
 | `FINANCE_MAX_PAGE_SIZE` | Upper bound applied to any requested `limit` | `100` |
 | `LOG_LEVEL` | Structured log level (`debug`/`info`/`warn`/`error`) | `info` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated list of origins allowed to read `/graphql`, `/graphql/stream`, and `/export` cross-origin | empty (all cross-origin reads denied) |
 
 Each connector endpoint that is **not** a `mock://` URL is served by the
 production HTTP client in `src/connectors/httpClient.js`, which adds bearer
@@ -448,12 +449,30 @@ client disconnects.
 
 ### CORS
 
-`/graphql`, `/graphql/stream`, and `/export` must be served behind an
-**explicit origin allow-list** — never a wildcard (`*`) `Access-Control-
-Allow-Origin` in production — so that only trusted front-ends can read
-responses cross-origin. Configure the CORS middleware with a fixed list (or
-an environment-driven list) of allowed origins instead of the permissive
-default before deploying publicly.
+`/graphql`, `/graphql/stream`, and `/export` are served behind an **explicit
+origin allow-list** — a wildcard (`*`) `Access-Control-Allow-Origin` is never
+emitted — so that only trusted front-ends can read responses cross-origin.
+
+The allow-list is built in `src/config/cors.js` from the
+`CORS_ALLOWED_ORIGINS` environment variable and applied by `src/index.js`:
+
+```bash
+CORS_ALLOWED_ORIGINS='https://app.example.com,https://admin.example.com' npm start
+```
+
+```js
+import { loadCorsOptions } from './config/cors.js';
+
+const corsOptions = loadCorsOptions();
+app.use('/graphql', cors(corsOptions), /* ... */);
+```
+
+An allowed `Origin` is echoed back verbatim; any other origin receives **no**
+CORS headers, so the browser blocks the response. When
+`CORS_ALLOWED_ORIGINS` is unset every cross-origin read is denied — this is
+the secure default, so the variable must be set for browser front-ends that
+live on a different origin. Requests without an `Origin` header (curl,
+server-to-server calls) are unaffected.
 
 Events are dispatched by an in-process pub/sub (`src/streaming/pubsub.js`).
 It is intentionally dependency-free, which means subscribers only see events
