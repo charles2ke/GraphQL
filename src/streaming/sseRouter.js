@@ -81,6 +81,16 @@ export function createStreamRouter({
       return;
     }
 
+    const operationType = getOperationAST(document, operation.operationName)?.operation;
+
+    // GET requests may be prefetched or replayed, so they must stay side-effect free.
+    if (req.method === 'GET' && operationType === 'mutation') {
+      res.status(405).json({
+        errors: [{ message: 'Mutations must be sent with POST.', extensions: { code: 'BAD_REQUEST' } }],
+      });
+      return;
+    }
+
     // Aborts in-flight subscriptions as soon as the client goes away.
     const controller = new AbortController();
     res.on('close', () => controller.abort());
@@ -98,7 +108,7 @@ export function createStreamRouter({
       contextValue: context,
     };
 
-    const isSubscription = getOperationAST(document, operation.operationName)?.operation === 'subscription';
+    const isSubscription = operationType === 'subscription';
 
     let result;
     try {
