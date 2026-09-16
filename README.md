@@ -408,18 +408,32 @@ curl http://localhost:4000/graphql \
 
 ## Streaming
 
-Subscriptions (and any query or mutation) can be streamed over Server-Sent
-Events at `POST|GET /graphql/stream`, which takes the same
-`query`/`variables`/`operationName` payload as `/graphql`. SSE keeps the
-transport plain HTTP — no WebSocket upgrade or extra service is required.
+Subscriptions can be streamed over Server-Sent Events at `POST|GET
+/graphql/stream`. **`GET` is read-only streaming**: it only accepts `query`
+and `subscription` operations, taken from plain `query`/`variables`/
+`operationName` query-string parameters, and is therefore safe to treat as a
+"simple" cross-origin request. This is *not* the same payload contract as
+`/graphql` — **mutations sent with `GET` are rejected with `405 Method Not
+Allowed`** so a mutating operation can never be triggered from a plain
+cross-site navigation or `<img>`/`<script>` style request.
+
+**Mutations must be sent with `POST`**, using a request shape that a simple
+cross-origin form or link cannot forge: a `Content-Type` such as
+`application/json` (which is not a CORS "simple" content type) and/or a
+custom header (e.g. `X-Requested-With`), matching the CSRF-prevention shape
+that Apollo Server enforces by default on `/graphql`. Requests that omit
+this shape should be rejected before they reach resolvers.
+
+SSE keeps the transport plain HTTP — no WebSocket upgrade or extra service is
+required.
 
 ```bash
-# Stream new users as they are created
+# Stream new users as they are created (query/subscription only over GET)
 curl -N -H 'Accept: text/event-stream' \
   --get http://localhost:4000/graphql/stream \
   --data-urlencode 'query=subscription { userCreated { id name email } }'
 
-# In another shell, trigger an event
+# Mutations must go to /graphql over POST with a non-simple Content-Type
 curl -X POST http://localhost:4000/graphql \
   -H 'Content-Type: application/json' \
   -d '{"query":"mutation { createUser(name: \"Grace\", email: \"grace@example.com\") { id } }"}'
@@ -427,11 +441,19 @@ curl -X POST http://localhost:4000/graphql \
 
 Each emitted result arrives as an `event: next` frame carrying the usual
 GraphQL response body, and the stream finishes with `event: complete`.
-Queries and mutations sent to the same endpoint produce exactly one `next`
-frame followed by `complete`, so a single client transport covers every
-operation type. Comment frames (`: ping`) act as heartbeats so idle
+Queries sent to `/graphql/stream` produce exactly one `next` frame followed
+by `complete`. Comment frames (`: ping`) act as heartbeats so idle
 connections survive proxies, and a subscription is torn down as soon as the
 client disconnects.
+
+### CORS
+
+`/graphql`, `/graphql/stream`, and `/export` must be served behind an
+**explicit origin allow-list** — never a wildcard (`*`) `Access-Control-
+Allow-Origin` in production — so that only trusted front-ends can read
+responses cross-origin. Configure the CORS middleware with a fixed list (or
+an environment-driven list) of allowed origins instead of the permissive
+default before deploying publicly.
 
 Events are dispatched by an in-process pub/sub (`src/streaming/pubsub.js`).
 It is intentionally dependency-free, which means subscribers only see events
