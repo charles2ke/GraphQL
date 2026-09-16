@@ -134,7 +134,6 @@ describe('cors configuration', () => {
           `${path} should echo the allowed origin`
         );
         allowedController.abort();
-        await allowed.body?.cancel().catch(() => {});
 
         const deniedController = new AbortController();
         const denied = await fetch(`${baseUrl}${path}`, {
@@ -148,7 +147,6 @@ describe('cors configuration', () => {
           `${path} should not echo a denied origin`
         );
         deniedController.abort();
-        await denied.body?.cancel().catch(() => {});
       }
     });
   });
