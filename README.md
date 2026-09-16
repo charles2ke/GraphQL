@@ -27,9 +27,11 @@ src/
   connectors/      # Replaceable OpenTrading, Portfolio-Watcher, tax-break adapters
   data/store.js    # In-memory data store with seed data
   domain/finance.js # Canonical finance models and normalization helpers
+  export/          # Excel (.xlsx) writer, dataset registry, and /export routes
   services/financeService.js # Finance aggregation, caching, and error handling
 test/
   graphql.test.js  # API tests executed against the schema
+  export.test.js   # Excel export writer, dataset, and route tests
 website/
   src/App.jsx      # Learning site: primer, tips, API Explorer
   src/backendSamples.js  # GraphQL server samples in 10 backend languages
@@ -60,6 +62,7 @@ environment variable):
 - Liveness check: <http://localhost:4000/health>
 - Readiness check (per-upstream): <http://localhost:4000/ready>
 - Metrics (Prometheus text): <http://localhost:4000/metrics>
+- Excel exports: <http://localhost:4000/export>
 
 Opening the GraphQL endpoint in a browser loads the Apollo Sandbox, where you can
 explore the schema and run the operations below.
@@ -397,6 +400,36 @@ curl http://localhost:4000/graphql \
   -H 'Content-Type: application/json' \
   -d '{"query":"{ users { id name posts { title } } }"}'
 ```
+
+## Excel export
+
+Any dataset the API serves can be downloaded as an Excel workbook (`.xlsx`) —
+useful for sharing a portfolio snapshot or trade history with a spreadsheet.
+The files are generated in-process, so no extra dependency or service is needed.
+
+```bash
+curl http://localhost:4000/export                       # list datasets
+curl -O -J http://localhost:4000/export/trades.xlsx     # download a workbook
+```
+
+| Dataset | Path | Sheets |
+| --- | --- | --- |
+| `users` | `/export/users.xlsx` | Users (with post counts) |
+| `posts` | `/export/posts.xlsx` | Posts (with author names) |
+| `portfolio` | `/export/portfolio.xlsx` | Accounts, Positions, Performance |
+| `trades` | `/export/trades.xlsx` | Trades, Orders, Tax Events |
+| `tax-estimate` | `/export/tax-estimate.xlsx?taxYear=2024` | Summary, Tax Events |
+
+Finance exports accept the same query parameters as their GraphQL counterparts
+(`accountId`, `symbol`, `side`, `status`, `from`, `to`, `limit`, `offset`, and
+`taxYear`, which is required for `tax-estimate`):
+
+```bash
+curl -O -J 'http://localhost:4000/export/trades.xlsx?accountId=acct-1&symbol=AAPL&limit=50'
+```
+
+When upstream connectors return partial data, the workbook gains an extra
+`Errors` sheet describing each failure instead of hiding the gap.
 
 ## Notes
 
