@@ -85,8 +85,10 @@ export function createStreamRouter({
 
     // GET requests may be prefetched or replayed, so they must stay side-effect free.
     if (req.method === 'GET' && operationType === 'mutation') {
-      res.status(405).json({
-        errors: [{ message: 'Mutations must be sent with POST.', extensions: { code: 'BAD_REQUEST' } }],
+      res.set('Allow', 'POST').status(405).json({
+        errors: [
+          { message: 'Mutations must be sent with POST.', extensions: { code: 'METHOD_NOT_ALLOWED' } },
+        ],
       });
       return;
     }
