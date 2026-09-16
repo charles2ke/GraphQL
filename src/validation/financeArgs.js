@@ -25,7 +25,9 @@ export function validateFinanceArgs(args, { requireTaxYear = false } = {}) {
   if (args.offset !== undefined && args.offset !== null && (!isGraphQLInt(args.offset) || args.offset < 0)) {
     issues.push('offset must be a non-negative integer');
   }
-  if (requireTaxYear && (!isGraphQLInt(args.taxYear) || args.taxYear < 1900 || args.taxYear > 9999)) {
+  if (requireTaxYear && (args.taxYear === undefined || args.taxYear === null)) {
+    issues.push('taxYear query parameter is required');
+  } else if (requireTaxYear && (!isGraphQLInt(args.taxYear) || args.taxYear < 1900 || args.taxYear > 9999)) {
     issues.push('taxYear must be between 1900 and 9999');
   }
   return issues;
