@@ -21,17 +21,19 @@ clean checkout without any database or other external dependency.
 src/
   index.js         # HTTP bootstrap: Express app + /graphql endpoint
   server.js        # Apollo Server factory (reused by the tests)
-  schema.js        # GraphQL type definitions
-  resolvers.js     # Query / Mutation / field resolvers
+  schema.js        # GraphQL type definitions and executable schema factory
+  resolvers.js     # Query / Mutation / Subscription / field resolvers
   config/finance.js # Environment-driven finance connector config
   connectors/      # Replaceable OpenTrading, Portfolio-Watcher, tax-break adapters
   data/store.js    # In-memory data store with seed data
   domain/finance.js # Canonical finance models and normalization helpers
   export/          # Excel (.xlsx) writer, dataset registry, and /export routes
   services/financeService.js # Finance aggregation, caching, and error handling
+  streaming/       # In-process pub/sub and the SSE streaming endpoint
 test/
   graphql.test.js  # API tests executed against the schema
   export.test.js   # Excel export writer, dataset, and route tests
+  streaming.test.js # Pub/sub and Server-Sent Events streaming tests
 website/
   src/App.jsx      # Learning site: primer, tips, API Explorer
   src/backendSamples.js  # GraphQL server samples in 10 backend languages
@@ -63,6 +65,7 @@ environment variable):
 - Readiness check (per-upstream): <http://localhost:4000/ready>
 - Metrics (Prometheus text): <http://localhost:4000/metrics>
 - Excel exports: <http://localhost:4000/export>
+- Streaming (SSE) endpoint: <http://localhost:4000/graphql/stream>
 
 Opening the GraphQL endpoint in a browser loads the Apollo Sandbox, where you can
 explore the schema and run the operations below.
@@ -322,6 +325,8 @@ Follow-up production tasks:
 | `taxEstimate(taxYear, accountId, symbol, from, to, limit, offset)` | Estimate tax from tax-relevant trading activity |
 | `createUser(name, email)` | Create a user |
 | `createPost(title, content, authorId)` | Create a post for an existing user |
+| `userCreated` | Subscription: streams every newly created user |
+| `postCreated(authorId)` | Subscription: streams new posts, optionally for one author |
 
 ### Example queries
 
@@ -400,6 +405,39 @@ curl http://localhost:4000/graphql \
   -H 'Content-Type: application/json' \
   -d '{"query":"{ users { id name posts { title } } }"}'
 ```
+
+## Streaming
+
+Subscriptions (and any query or mutation) can be streamed over Server-Sent
+Events at `POST|GET /graphql/stream`, which takes the same
+`query`/`variables`/`operationName` payload as `/graphql`. SSE keeps the
+transport plain HTTP — no WebSocket upgrade or extra service is required.
+
+```bash
+# Stream new users as they are created
+curl -N -H 'Accept: text/event-stream' \
+  --get http://localhost:4000/graphql/stream \
+  --data-urlencode 'query=subscription { userCreated { id name email } }'
+
+# In another shell, trigger an event
+curl -X POST http://localhost:4000/graphql \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"mutation { createUser(name: \"Grace\", email: \"grace@example.com\") { id } }"}'
+```
+
+Each emitted result arrives as an `event: next` frame carrying the usual
+GraphQL response body, and the stream finishes with `event: complete`.
+Queries and mutations sent to the same endpoint produce exactly one `next`
+frame followed by `complete`, so a single client transport covers every
+operation type. Comment frames (`: ping`) act as heartbeats so idle
+connections survive proxies, and a subscription is torn down as soon as the
+client disconnects.
+
+Events are dispatched by an in-process pub/sub (`src/streaming/pubsub.js`).
+It is intentionally dependency-free, which means subscribers only see events
+published by their own instance; swap that module for a Redis/NATS-backed
+implementation with the same `publish`/`subscribe` contract to run more than
+one replica.
 
 ## Excel export
 
