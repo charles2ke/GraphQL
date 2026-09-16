@@ -123,30 +123,38 @@ describe('cors configuration', () => {
 
       for (const { path, init } of routes) {
         const allowedController = new AbortController();
-        const allowed = await fetch(`${baseUrl}${path}`, {
-          ...init,
-          headers: { ...init.headers, origin: 'https://app.example' },
-          signal: allowedController.signal,
-        });
-        assert.equal(
-          allowed.headers.get('access-control-allow-origin'),
-          'https://app.example',
-          `${path} should echo the allowed origin`
-        );
-        allowedController.abort();
+        try {
+          const allowed = await fetch(`${baseUrl}${path}`, {
+            ...init,
+            headers: { ...init.headers, origin: 'https://app.example' },
+            signal: allowedController.signal,
+          });
+          assert.equal(allowed.status, 200, `${path} should succeed for an allowed origin`);
+          assert.equal(
+            allowed.headers.get('access-control-allow-origin'),
+            'https://app.example',
+            `${path} should echo the allowed origin`
+          );
+        } finally {
+          allowedController.abort();
+        }
 
         const deniedController = new AbortController();
-        const denied = await fetch(`${baseUrl}${path}`, {
-          ...init,
-          headers: { ...init.headers, origin: 'https://evil.example' },
-          signal: deniedController.signal,
-        });
-        assert.equal(
-          denied.headers.get('access-control-allow-origin'),
-          null,
-          `${path} should not echo a denied origin`
-        );
-        deniedController.abort();
+        try {
+          const denied = await fetch(`${baseUrl}${path}`, {
+            ...init,
+            headers: { ...init.headers, origin: 'https://evil.example' },
+            signal: deniedController.signal,
+          });
+          assert.equal(denied.status, 200, `${path} should still respond for a denied origin`);
+          assert.equal(
+            denied.headers.get('access-control-allow-origin'),
+            null,
+            `${path} should not echo a denied origin`
+          );
+        } finally {
+          deniedController.abort();
+        }
       }
     });
   });
