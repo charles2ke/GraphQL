@@ -37,7 +37,30 @@ function readOperation(req) {
 function writeEvent(res, event, data) {
   res.write(`event: ${event}\n`);
   if (data !== undefined) res.write(`data: ${JSON.stringify(data)}\n`);
-  res.write('\n');
+  return res.write('\n');
+}
+
+/**
+ * Resolves once the socket has flushed its buffer, or immediately when the
+ * request is already aborted, so a slow client cannot make the server buffer
+ * payloads without bound.
+ */
+function waitForDrain(res, signal) {
+  return new Promise((resolve) => {
+    if (signal.aborted || res.writableEnded) {
+      resolve();
+      return;
+    }
+    const finish = () => {
+      res.off('drain', finish);
+      res.off('close', finish);
+      signal.removeEventListener('abort', finish);
+      resolve();
+    };
+    res.once('drain', finish);
+    res.once('close', finish);
+    signal.addEventListener('abort', finish, { once: true });
+  });
 }
 
 /**
@@ -97,23 +120,23 @@ export function createStreamRouter({
     const controller = new AbortController();
     res.on('close', () => controller.abort());
 
-    const context = {
-      ...(typeof contextValue === 'function' ? await contextValue({ req }) : contextValue ?? {}),
-      signal: controller.signal,
-    };
-
     const args = {
       schema,
       document,
       variableValues: operation.variables,
       operationName: operation.operationName,
-      contextValue: context,
     };
 
     const isSubscription = operationType === 'subscription';
 
     let result;
     try {
+      // Context construction is awaited here so a throwing/rejecting context
+      // factory answers the request instead of becoming an unhandled rejection.
+      args.contextValue = {
+        ...(typeof contextValue === 'function' ? await contextValue({ req }) : contextValue ?? {}),
+        signal: controller.signal,
+      };
       result = await (isSubscription ? subscribe(args) : execute(args));
     } catch (error) {
       res.status(500).json({ errors: [{ message: error?.message ?? String(error) }] });
@@ -141,7 +164,11 @@ export function createStreamRouter({
     try {
       for await (const payload of result) {
         if (controller.signal.aborted) break;
-        writeEvent(res, 'next', payload);
+        // Stop pulling from the iterator until the socket drains so a slow
+        // client cannot grow the response buffer at the publisher's rate.
+        if (writeEvent(res, 'next', payload) === false) {
+          await waitForDrain(res, controller.signal);
+        }
       }
       if (!controller.signal.aborted) writeEvent(res, 'complete');
     } catch (error) {

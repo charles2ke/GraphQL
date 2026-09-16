@@ -51,6 +51,9 @@ export function createPubSub({ maxQueueSize = DEFAULT_MAX_QUEUE } = {}) {
     function stop() {
       if (done) return { value: undefined, done: true };
       done = true;
+      // Drop buffered events so abort/return() terminate immediately instead
+      // of draining payloads queued before the stop.
+      queue.length = 0;
       listeners.delete(listener);
       if (listeners.size === 0) topics.delete(topic);
       signal?.removeEventListener?.('abort', stop);

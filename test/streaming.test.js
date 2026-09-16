@@ -134,6 +134,22 @@ describe('GraphQL streaming (SSE)', () => {
 
       assert.deepEqual(frames.map((frame) => frame.event), ['next', 'complete']);
       assert.equal(frames[0].data.data.users.length, 2);
+
+      const mutation = await fetch(app.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          query: 'mutation { createUser(name: "Grace Hopper", email: "grace@example.com") { id name } }',
+        }),
+      });
+
+      assert.equal(mutation.status, 200);
+      const mutationFrames = [];
+      for await (const frame of readEvents(mutation)) mutationFrames.push(frame);
+
+      assert.deepEqual(mutationFrames.map((frame) => frame.event), ['next', 'complete']);
+      assert.equal(mutationFrames[0].data.data.createUser.name, 'Grace Hopper');
+      assert.equal(app.store.getUser(mutationFrames[0].data.data.createUser.id)?.name, 'Grace Hopper');
     } finally {
       await app.close();
     }
@@ -194,6 +210,7 @@ describe('pub/sub', () => {
     const pubsub = createPubSub();
     const iterator = pubsub.subscribe('topic');
 
+    pubsub.publish('topic', 'buffered');
     await iterator.return();
     pubsub.publish('topic', 'ignored');
 
