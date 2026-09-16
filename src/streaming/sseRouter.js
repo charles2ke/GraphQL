@@ -35,9 +35,9 @@ function readOperation(req) {
 }
 
 function writeEvent(res, event, data) {
-  res.write(`event: ${event}\n`);
-  if (data !== undefined) res.write(`data: ${JSON.stringify(data)}\n`);
-  return res.write('\n');
+  let flushed = res.write(`event: ${event}\n`);
+  if (data !== undefined) flushed = res.write(`data: ${JSON.stringify(data)}\n`) && flushed;
+  return res.write('\n') && flushed;
 }
 
 /**
@@ -54,11 +54,13 @@ function waitForDrain(res, signal) {
     const finish = () => {
       res.off('drain', finish);
       res.off('close', finish);
+      res.off('error', finish);
       signal.removeEventListener('abort', finish);
       resolve();
     };
     res.once('drain', finish);
     res.once('close', finish);
+    res.once('error', finish);
     signal.addEventListener('abort', finish, { once: true });
   });
 }
