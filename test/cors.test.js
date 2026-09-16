@@ -122,39 +122,35 @@ describe('cors configuration', () => {
       ];
 
       for (const { path, init } of routes) {
-        const allowedController = new AbortController();
-        try {
-          const allowed = await fetch(`${baseUrl}${path}`, {
-            ...init,
-            headers: { ...init.headers, origin: 'https://app.example' },
-            signal: allowedController.signal,
-          });
-          assert.equal(allowed.status, 200, `${path} should succeed for an allowed origin`);
-          assert.equal(
-            allowed.headers.get('access-control-allow-origin'),
-            'https://app.example',
-            `${path} should echo the allowed origin`
-          );
-        } finally {
-          allowedController.abort();
-        }
+        const allowed = await fetch(`${baseUrl}${path}`, {
+          ...init,
+          headers: { ...init.headers, origin: 'https://app.example' },
+        });
+        assert.equal(allowed.status, 200, `${path} should succeed for an allowed origin`);
+        assert.equal(
+          allowed.headers.get('access-control-allow-origin'),
+          'https://app.example',
+          `${path} should echo the allowed origin`
+        );
 
-        const deniedController = new AbortController();
-        try {
-          const denied = await fetch(`${baseUrl}${path}`, {
-            ...init,
-            headers: { ...init.headers, origin: 'https://evil.example' },
-            signal: deniedController.signal,
-          });
-          assert.equal(denied.status, 200, `${path} should still respond for a denied origin`);
-          assert.equal(
-            denied.headers.get('access-control-allow-origin'),
-            null,
-            `${path} should not echo a denied origin`
-          );
-        } finally {
-          deniedController.abort();
-        }
+        const denied = await fetch(`${baseUrl}${path}`, {
+          ...init,
+          headers: { ...init.headers, origin: 'https://evil.example' },
+        });
+        assert.equal(denied.status, 200, `${path} should still respond for a denied origin`);
+        assert.equal(
+          denied.headers.get('access-control-allow-origin'),
+          null,
+          `${path} should not echo a denied origin`
+        );
+
+        const noOrigin = await fetch(`${baseUrl}${path}`, init);
+        assert.equal(noOrigin.status, 200, `${path} should succeed without an Origin header`);
+        assert.equal(
+          noOrigin.headers.get('access-control-allow-origin'),
+          null,
+          `${path} should not emit a CORS header without an Origin header`
+        );
       }
     });
   });
