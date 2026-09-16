@@ -105,6 +105,16 @@ describe('xlsx writer', () => {
     assert.match(entries.get('xl/worksheets/sheet1.xml'), /<c r="B2"\/>/);
   });
 
+  it('removes XML-forbidden noncharacters from strings', () => {
+    const entries = readZip(
+      buildWorkbook({ sheets: [{ columns: [{ key: 'a' }], rows: [{ a: 'bad\ufffegap\uffffend' }] }] })
+    );
+
+    const sheet = entries.get('xl/worksheets/sheet1.xml');
+    assert.match(sheet, /badgapend/);
+    assert.doesNotMatch(sheet, /\ufffe|\uffff/);
+  });
+
   it('rejects workbooks without sheets or columns', () => {
     assert.throws(() => buildWorkbook({ sheets: [] }), TypeError);
     assert.throws(() => buildWorkbook({ sheets: [{ columns: [] }] }), TypeError);
