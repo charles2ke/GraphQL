@@ -263,8 +263,8 @@ curl http://localhost:4000/graphql \
 
 ## Streaming
 
-Subscriptions can be streamed over Server-Sent Events at `POST|GET
-/graphql/stream`. **`GET` is read-only streaming**: it only accepts `query`
+Subscriptions can be streamed over Server-Sent Events at `POST /graphql/stream`
+or `GET /graphql/stream`. **`GET` is read-only streaming**: it only accepts `query`
 and `subscription` operations, taken from plain `query`/`variables`/
 `operationName` query-string parameters, and is therefore safe to treat as a
 "simple" cross-origin request. This is *not* the same payload contract as
