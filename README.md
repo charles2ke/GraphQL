@@ -2,11 +2,47 @@
 
 Make any microservice have a GraphQL implementation.
 
+[![CI](https://github.com/charles2ke/GraphQL/actions/workflows/ci.yml/badge.svg)](https://github.com/charles2ke/GraphQL/actions/workflows/ci.yml)
+[![Deploy website to GitHub Pages](https://github.com/charles2ke/GraphQL/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/charles2ke/GraphQL/actions/workflows/deploy-pages.yml)
+[![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org/)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 **Live website: <https://charles2ke.github.io/GraphQL/>**
 
 This repository contains a minimal, working backend service that exposes a GraphQL
-API for a small `User` / `Post` domain. It uses in-memory storage, so it runs from a
-clean checkout without any database or other external dependency.
+API for a small `User` / `Post` domain, plus an optional finance surface that
+aggregates three upstream domains. It uses in-memory storage and mock connectors,
+so it runs from a clean checkout without any database or other external
+dependency.
+
+## Quick start
+
+```bash
+git clone https://github.com/charles2ke/GraphQL.git
+cd GraphQL
+npm install
+npm start          # http://localhost:4000/graphql
+npm test           # node:test suite
+```
+
+Open <http://localhost:4000/graphql> in a browser to explore the schema in the
+Apollo Sandbox, or jump to [Example queries](#example-queries).
+
+## Contents
+
+- [Stack](#stack)
+- [Project structure](#project-structure)
+- [Installation and running locally](#installation-and-running-locally)
+- [Learning website](#learning-website)
+- [Tests](#tests)
+- [Continuous integration](#continuous-integration)
+- [API](#api)
+- [Streaming](#streaming)
+- [CORS](#cors)
+- [Excel export](#excel-export)
+- [Finance cluster integration](#finance-cluster-integration)
+- [Notes](#notes)
+- [Security and license](#security-and-license)
 
 ## Stack
 
@@ -19,21 +55,29 @@ clean checkout without any database or other external dependency.
 
 ```
 src/
-  index.js         # HTTP bootstrap: Express app + /graphql endpoint
+  index.js         # HTTP bootstrap: Express app + /graphql, /export, /graphql/stream
   server.js        # Apollo Server factory (reused by the tests)
   schema.js        # GraphQL type definitions and executable schema factory
   resolvers.js     # Query / Mutation / Subscription / field resolvers
-  config/finance.js # Environment-driven finance connector config
-  connectors/      # Replaceable OpenTrading, Portfolio-Watcher, tax-break adapters
+  cache/index.js   # Pluggable TTL cache (memory, file, shared provider)
+  config/          # Environment-driven finance and CORS configuration
+  connectors/      # OpenTrading, Portfolio-Watcher, tax-break adapters + HTTP client
   data/store.js    # In-memory data store with seed data
   domain/finance.js # Canonical finance models and normalization helpers
   export/          # Excel (.xlsx) writer, dataset registry, and /export routes
+  observability/   # Structured logging, metrics, error classification, Apollo plugin
   services/financeService.js # Finance aggregation, caching, and error handling
   streaming/       # In-process pub/sub and the SSE streaming endpoint
+  validation/financeArgs.js  # Shared finance argument validation
 test/
-  graphql.test.js  # API tests executed against the schema
-  export.test.js   # Excel export writer, dataset, and route tests
-  streaming.test.js # Pub/sub and Server-Sent Events streaming tests
+  graphql.test.js      # API tests executed against the schema
+  finance.test.js      # Finance service, filtering, and pagination tests
+  connectors.test.js   # Connector selection and HTTP client tests
+  cors.test.js         # CORS allow-list tests
+  export.test.js       # Excel export writer, dataset, and route tests
+  observability.test.js # Logging, metrics, and error classification tests
+  resilience.test.js   # Timeout, retry, and partial-failure tests
+  streaming.test.js    # Pub/sub and Server-Sent Events streaming tests
 website/
   src/App.jsx      # Learning site: primer, tips, API Explorer
   src/backendSamples.js  # GraphQL server samples in 10 backend languages
@@ -43,17 +87,12 @@ website/
   deploy-pages.yml # Builds website/ and publishes it to GitHub Pages
 ```
 
-## Installation
+## Installation and running locally
 
 ```bash
 git clone https://github.com/charles2ke/GraphQL.git
 cd GraphQL
 npm install
-```
-
-## Running locally
-
-```bash
 npm start          # or: npm run dev  (restarts on file changes)
 ```
 
@@ -124,210 +163,25 @@ every pull request, and on demand from the Actions tab. It has two jobs:
 
 Runs are grouped per branch and superseded runs are cancelled automatically.
 
-## Finance Cluster Integration (Priority 1)
-
-This service now exposes a unified finance GraphQL surface over three upstream
-domains:
-
-- **OpenTrading**: accounts, orders, trades, and fills
-- **Portfolio-Watcher**: holdings/positions and performance snapshots
-- **tax-break**: trade-to-tax-event mapping and tax estimate summaries
-
-The initial implementation uses mock connectors under `src/connectors/` so the
-API runs from a clean checkout. Each connector exposes a small async contract
-that can be replaced later with HTTP, gRPC, queue, or database-backed clients
-without changing the GraphQL schema.
-
-### Configuration
-
-The running server loads connector settings from the environment via
-`src/config/finance.js`:
-
-| Variable | Description | Default |
-| --- | --- | --- |
-| `OPENTRADING_ENDPOINT` | OpenTrading endpoint placeholder | `mock://opentrading` |
-| `OPENTRADING_API_KEY` | OpenTrading credential placeholder | empty |
-| `PORTFOLIO_WATCHER_ENDPOINT` | Portfolio-Watcher endpoint placeholder | `mock://portfolio-watcher` |
-| `PORTFOLIO_WATCHER_API_KEY` | Portfolio-Watcher credential placeholder | empty |
-| `TAX_BREAK_ENDPOINT` | tax-break endpoint placeholder | `mock://tax-break` |
-| `TAX_BREAK_API_KEY` | tax-break credential placeholder | empty |
-| `FINANCE_CACHE_TTL_MS` | Resolver cache TTL | `1000` |
-| `FINANCE_CACHE_STORE` | Cache strategy: `memory`, `file` (persistent), or `shared` | `memory` |
-| `FINANCE_CACHE_FILE` | Cache file used when `FINANCE_CACHE_STORE=file` | `.cache/finance-cache.json` |
-| `FINANCE_CACHE_SHARED_MODULE` | Optional shared cache provider module path used when `FINANCE_CACHE_STORE=shared` | empty |
-| `FINANCE_HTTP_TIMEOUT_MS` | Per-request upstream timeout | `5000` |
-| `FINANCE_HTTP_MAX_RETRIES` | Retries for timeouts, 429s, and 5xx responses | `2` |
-| `FINANCE_DEFAULT_PAGE_SIZE` | Default page size when `limit` is omitted | `25` |
-| `FINANCE_MAX_PAGE_SIZE` | Upper bound applied to any requested `limit` | `100` |
-| `LOG_LEVEL` | Structured log level (`debug`/`info`/`warn`/`error`) | `info` |
-| `CORS_ALLOWED_ORIGINS` | Comma-separated list of origins allowed to read `/graphql`, `/graphql/stream`, and `/export` cross-origin | empty (all cross-origin reads denied) |
-
-Each connector endpoint that is **not** a `mock://` URL is served by the
-production HTTP client in `src/connectors/httpClient.js`, which adds bearer
-authentication, request timeouts, bounded retries with exponential backoff, and
-per-call metrics. Mock adapters remain the default so the service still runs
-from a clean checkout. Live endpoints require the corresponding `*_API_KEY`;
-when credentials are missing, connectors fail safely with a non-sensitive auth
-error and readiness reports `degraded`.
-
-Do not commit real credentials. Production connectors should read credentials
-from environment variables or a secret manager and keep the same method names as
-the mock adapters.
-
-### Data flow
-
-1. GraphQL resolvers call `financeService` through the request context.
-2. `financeService` calls each upstream connector and normalizes inconsistent
-   field names in `src/domain/finance.js`.
-3. OpenTrading trades are enriched through tax-break into `TaxEvent` records.
-4. Portfolio-Watcher positions and snapshots are aggregated with accounts into a
-   portfolio overview with total market value and unrealized P/L.
-5. Connector failures are captured as `FinanceUpstreamError` objects so clients
-   receive actionable source/code/message details while still getting any
-   partial data from healthy upstreams.
-6. Upstream reads go through a short-lived TTL cache
-   (`FINANCE_CACHE_TTL_MS`) that also de-duplicates concurrent requests, so
-   overlapping resolvers share a single connector call.
-
-### Finance queries
-
-Portfolio overview with positions and P/L:
-
-```graphql
-query PortfolioOverview {
-  portfolioOverview {
-    accounts { id name provider currency }
-    positions { symbol quantity marketValue unrealizedPnL }
-    performance { asOf totalValue dayPnL totalPnL }
-    totalMarketValue
-    totalUnrealizedPnL
-    errors { source code message }
-  }
-}
-```
-
-Trade history mapped to tax-relevant events:
-
-```graphql
-query TradeHistory {
-  tradeHistory(symbol: "AAPL") {
-    trades { id side symbol quantity price executedAt }
-    taxEvents { tradeId proceeds costBasis realizedGain occurredAt }
-    errors { source code message }
-  }
-}
-```
-
-Tax summary traceable to the underlying trading activity:
-
-```graphql
-query TaxEstimate {
-  taxEstimate(taxYear: 2026) {
-    totalProceeds
-    totalCostBasis
-    realizedGain
-    estimatedTax
-    events { id tradeId realizedGain }
-    errors { source code message }
-  }
-}
-```
-
-Run the API and tests with the existing commands:
-
-```bash
-npm start
-npm test
-```
-
-### Filtering and pagination
-
-Finance queries accept optional filters and offset pagination:
-
-- `portfolioOverview(accountId, from, to, limit, offset)` — `from`/`to` bound
-  performance snapshots (inclusive ISO-8601); `limit`/`offset` page positions.
-- `tradeHistory(accountId, symbol, side, status, from, to, limit, offset)` —
-  filters trades and orders, then pages them. Returned tax events always match
-  the trades on the current page.
-- `taxEstimate(taxYear, accountId, symbol, from, to, limit, offset)` — totals are
-  always computed over every matching event; `limit`/`offset` only page the
-  returned `events`.
-
-Every finance payload includes `pageInfo { totalCount limit offset hasNextPage
-hasPreviousPage }`. Requested limits are clamped to `FINANCE_MAX_PAGE_SIZE`.
-Invalid date ranges (`from > to`) and malformed date/pagination inputs are
-rejected with `BAD_USER_INPUT` and `extensions.category = "validation"`.
-
-```graphql
-query RecentSells {
-  tradeHistory(side: "SELL", from: "2026-01-01T00:00:00.000Z", limit: 10) {
-    trades { id symbol quantity price executedAt }
-    pageInfo { totalCount hasNextPage }
-  }
-}
-```
-
-### Observability
-
-- **Structured logs**: JSON lines from `src/observability/logger.js`, with
-  credential-like fields redacted. One line per GraphQL operation includes the
-  operation name, duration, outcome, and error codes.
-- **Metrics**: `src/observability/metrics.js` records GraphQL operation
-  counts/latency, connector call counts/latency per source and operation,
-  upstream retry failures, classified failures
-  (`finance_upstream_errors_total{source,operation,category,retryable}`), and
-  cache hit/miss/coalesced counters labelled with the active store. Scrape them
-  at `GET /metrics`.
-- **Error classification**: `src/observability/errors.js` maps every upstream
-  failure to a stable `category` (`AUTH`, `RATE_LIMIT`, `TIMEOUT`, `NETWORK`,
-  `UPSTREAM_CLIENT_ERROR`, `UPSTREAM_SERVER_ERROR`, `UNKNOWN`) plus `status` and
-  `retryable`. Those fields are returned on every payload's
-  `errors { source code category status retryable message }`, so a partial
-  response still explains what failed and whether retrying helps.
-- **API-safe taxonomy**: finance resolver input and internal failures are
-  normalized to GraphQL-safe categories: `validation`, `auth`, `upstream`, and
-  `internal`, with non-sensitive messages.
-- **Health**: `GET /health` is a liveness probe; `GET /ready` calls each
-  connector's health check and returns `503` when any upstream is degraded.
-
-### Caching
-
-Upstream reads go through a TTL cache selected by `FINANCE_CACHE_STORE`
-(`src/cache/index.js`):
-
-- `memory` (default): in-process, fastest, cleared on restart.
-- `file`: the same TTL semantics mirrored to `FINANCE_CACHE_FILE`, so a
-  restarted process serves warm upstream data instead of refetching everything.
-- `shared`: optional provider loaded from `FINANCE_CACHE_SHARED_MODULE`. The
-  module must export `createSharedCacheStore()` returning a store with
-  `get(key)`, `set(key, value, ttlMs)`, and `clear()` methods (Redis-like
-  adapters can implement this contract). If loading fails, the service logs a
-  warning and falls back to `memory`.
-
-Concurrent resolvers asking for the same key share one in-flight request, and
-payloads containing upstream errors are never cached so a transient outage is
-not pinned for the whole TTL.
-
-Follow-up production tasks:
-
-- Move from offset pagination to cursor pagination if upstream APIs expose
-  stable cursors.
-
 ## API
 
-| Operation | Description |
-| --- | --- |
-| `users` | List all users |
-| `user(id: ID!)` | Fetch a single user, `null` when unknown |
-| `posts` | List all posts |
-| `post(id: ID!)` | Fetch a single post, `null` when unknown |
-| `portfolioOverview(accountId, from, to, limit, offset)` | Fetch finance accounts, positions, snapshots, and P/L |
-| `tradeHistory(accountId, symbol, side, status, from, to, limit, offset)` | Fetch trades/orders enriched with tax events |
-| `taxEstimate(taxYear, accountId, symbol, from, to, limit, offset)` | Estimate tax from tax-relevant trading activity |
-| `createUser(name, email)` | Create a user |
-| `createPost(title, content, authorId)` | Create a post for an existing user |
-| `userCreated` | Subscription: streams every newly created user |
-| `postCreated(authorId)` | Subscription: streams new posts, optionally for one author |
+| Type | Operation | Description |
+| --- | --- | --- |
+| Query | `users` | List all users |
+| Query | `user(id: ID!)` | Fetch a single user, `null` when unknown |
+| Query | `posts` | List all posts |
+| Query | `post(id: ID!)` | Fetch a single post, `null` when unknown |
+| Query | `portfolioOverview(accountId, from, to, limit, offset)` | Fetch finance accounts, positions, snapshots, and P/L |
+| Query | `tradeHistory(accountId, symbol, side, status, from, to, limit, offset)` | Fetch trades/orders enriched with tax events |
+| Query | `taxEstimate(taxYear, accountId, symbol, from, to, limit, offset)` | Estimate tax from tax-relevant trading activity |
+| Mutation | `createUser(name, email)` | Create a user |
+| Mutation | `createPost(title, content, authorId)` | Create a post for an existing user |
+| Subscription | `userCreated` | Streams every newly created user |
+| Subscription | `postCreated(authorId)` | Streams new posts, optionally for one author |
+
+The finance operations are documented in detail under
+[Finance cluster integration](#finance-cluster-integration); subscriptions are
+delivered over SSE, see [Streaming](#streaming).
 
 ### Example queries
 
@@ -447,7 +301,13 @@ by `complete`. Comment frames (`: ping`) act as heartbeats so idle
 connections survive proxies, and a subscription is torn down as soon as the
 client disconnects.
 
-### CORS
+Events are dispatched by an in-process pub/sub (`src/streaming/pubsub.js`).
+It is intentionally dependency-free, which means subscribers only see events
+published by their own instance; swap that module for a Redis/NATS-backed
+implementation with the same `publish`/`subscribe` contract to run more than
+one replica.
+
+## CORS
 
 `/graphql`, `/graphql/stream`, and `/export` are served behind an **explicit
 origin allow-list** — a wildcard (`*`) `Access-Control-Allow-Origin` is never
@@ -473,12 +333,6 @@ CORS headers, so the browser blocks the response. When
 the secure default, so the variable must be set for browser front-ends that
 live on a different origin. Requests without an `Origin` header (curl,
 server-to-server calls) are unaffected.
-
-Events are dispatched by an in-process pub/sub (`src/streaming/pubsub.js`).
-It is intentionally dependency-free, which means subscribers only see events
-published by their own instance; swap that module for a Redis/NATS-backed
-implementation with the same `publish`/`subscribe` contract to run more than
-one replica.
 
 ## Excel export
 
@@ -510,9 +364,198 @@ curl -O -J 'http://localhost:4000/export/trades.xlsx?accountId=acct-1&symbol=AAP
 When upstream connectors return partial data, the workbook gains an extra
 `Errors` sheet describing each failure instead of hiding the gap.
 
+## Finance cluster integration
+
+This service exposes a unified finance GraphQL surface over three upstream
+domains:
+
+- **OpenTrading**: accounts, orders, trades, and fills
+- **Portfolio-Watcher**: holdings/positions and performance snapshots
+- **tax-break**: trade-to-tax-event mapping and tax estimate summaries
+
+The initial implementation uses mock connectors under `src/connectors/` so the
+API runs from a clean checkout. Each connector exposes a small async contract
+that can be replaced later with HTTP, gRPC, queue, or database-backed clients
+without changing the GraphQL schema.
+
+### Configuration
+
+The running server loads connector settings from the environment via
+`src/config/finance.js` (the last three rows are read elsewhere but listed here
+for a single view of the service configuration):
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `PORT` | HTTP port the service listens on | `4000` |
+| `OPENTRADING_ENDPOINT` | OpenTrading endpoint placeholder | `mock://opentrading` |
+| `OPENTRADING_API_KEY` | OpenTrading credential placeholder | empty |
+| `PORTFOLIO_WATCHER_ENDPOINT` | Portfolio-Watcher endpoint placeholder | `mock://portfolio-watcher` |
+| `PORTFOLIO_WATCHER_API_KEY` | Portfolio-Watcher credential placeholder | empty |
+| `TAX_BREAK_ENDPOINT` | tax-break endpoint placeholder | `mock://tax-break` |
+| `TAX_BREAK_API_KEY` | tax-break credential placeholder | empty |
+| `FINANCE_CACHE_TTL_MS` | Resolver cache TTL | `1000` |
+| `FINANCE_CACHE_STORE` | Cache strategy: `memory`, `file` (persistent), or `shared` | `memory` |
+| `FINANCE_CACHE_FILE` | Cache file used when `FINANCE_CACHE_STORE=file` | `.cache/finance-cache.json` |
+| `FINANCE_CACHE_SHARED_MODULE` | Optional shared cache provider module path used when `FINANCE_CACHE_STORE=shared` | empty |
+| `FINANCE_HTTP_TIMEOUT_MS` | Per-request upstream timeout | `5000` |
+| `FINANCE_HTTP_MAX_RETRIES` | Retries for timeouts, 429s, and 5xx responses | `2` |
+| `FINANCE_DEFAULT_PAGE_SIZE` | Default page size when `limit` is omitted | `25` |
+| `FINANCE_MAX_PAGE_SIZE` | Upper bound applied to any requested `limit` | `100` |
+| `LOG_LEVEL` | Structured log level (`debug`/`info`/`warn`/`error`) | `info` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated list of origins allowed to read `/graphql`, `/graphql/stream`, and `/export` cross-origin | empty (all cross-origin reads denied) |
+
+Each connector endpoint that is **not** a `mock://` URL is served by the
+production HTTP client in `src/connectors/httpClient.js`, which adds bearer
+authentication, request timeouts, bounded retries with exponential backoff, and
+per-call metrics. Mock adapters remain the default so the service still runs
+from a clean checkout. Live endpoints require the corresponding `*_API_KEY`;
+when credentials are missing, connectors fail safely with a non-sensitive auth
+error and readiness reports `degraded`.
+
+Do not commit real credentials. Production connectors should read credentials
+from environment variables or a secret manager and keep the same method names as
+the mock adapters.
+
+### Data flow
+
+1. GraphQL resolvers call `financeService` through the request context.
+2. `financeService` calls each upstream connector and normalizes inconsistent
+   field names in `src/domain/finance.js`.
+3. OpenTrading trades are enriched through tax-break into `TaxEvent` records.
+4. Portfolio-Watcher positions and snapshots are aggregated with accounts into a
+   portfolio overview with total market value and unrealized P/L.
+5. Connector failures are captured as `FinanceUpstreamError` objects so clients
+   receive actionable source/code/message details while still getting any
+   partial data from healthy upstreams.
+6. Upstream reads go through a short-lived TTL cache
+   (`FINANCE_CACHE_TTL_MS`) that also de-duplicates concurrent requests, so
+   overlapping resolvers share a single connector call.
+
+### Finance queries
+
+Portfolio overview with positions and P/L:
+
+```graphql
+query PortfolioOverview {
+  portfolioOverview {
+    accounts { id name provider currency }
+    positions { symbol quantity marketValue unrealizedPnL }
+    performance { asOf totalValue dayPnL totalPnL }
+    totalMarketValue
+    totalUnrealizedPnL
+    errors { source code message }
+  }
+}
+```
+
+Trade history mapped to tax-relevant events:
+
+```graphql
+query TradeHistory {
+  tradeHistory(symbol: "AAPL") {
+    trades { id side symbol quantity price executedAt }
+    taxEvents { tradeId proceeds costBasis realizedGain occurredAt }
+    errors { source code message }
+  }
+}
+```
+
+Tax summary traceable to the underlying trading activity:
+
+```graphql
+query TaxEstimate {
+  taxEstimate(taxYear: 2026) {
+    totalProceeds
+    totalCostBasis
+    realizedGain
+    estimatedTax
+    events { id tradeId realizedGain }
+    errors { source code message }
+  }
+}
+```
+
+### Filtering and pagination
+
+Finance queries accept optional filters and offset pagination:
+
+- `portfolioOverview(accountId, from, to, limit, offset)` — `from`/`to` bound
+  performance snapshots (inclusive ISO-8601); `limit`/`offset` page positions.
+- `tradeHistory(accountId, symbol, side, status, from, to, limit, offset)` —
+  filters trades and orders, then pages them. Returned tax events always match
+  the trades on the current page.
+- `taxEstimate(taxYear, accountId, symbol, from, to, limit, offset)` — totals are
+  always computed over every matching event; `limit`/`offset` only page the
+  returned `events`.
+
+Every finance payload includes `pageInfo { totalCount limit offset hasNextPage
+hasPreviousPage }`. Requested limits are clamped to `FINANCE_MAX_PAGE_SIZE`.
+Invalid date ranges (`from > to`) and malformed date/pagination inputs are
+rejected with `BAD_USER_INPUT` and `extensions.category = "validation"`.
+
+```graphql
+query RecentSells {
+  tradeHistory(side: "SELL", from: "2026-01-01T00:00:00.000Z", limit: 10) {
+    trades { id symbol quantity price executedAt }
+    pageInfo { totalCount hasNextPage }
+  }
+}
+```
+
+### Observability
+
+- **Structured logs**: JSON lines from `src/observability/logger.js`, with
+  credential-like fields redacted. One line per GraphQL operation includes the
+  operation name, duration, outcome, and error codes.
+- **Metrics**: `src/observability/metrics.js` records GraphQL operation
+  counts/latency, connector call counts/latency per source and operation,
+  upstream retry failures, classified failures
+  (`finance_upstream_errors_total{source,operation,category,retryable}`), and
+  cache hit/miss/coalesced counters labelled with the active store. Scrape them
+  at `GET /metrics`.
+- **Error classification**: `src/observability/errors.js` maps every upstream
+  failure to a stable `category` (`AUTH`, `RATE_LIMIT`, `TIMEOUT`, `NETWORK`,
+  `UPSTREAM_CLIENT_ERROR`, `UPSTREAM_SERVER_ERROR`, `UNKNOWN`) plus `status` and
+  `retryable`. Those fields are returned on every payload's
+  `errors { source code category status retryable message }`, so a partial
+  response still explains what failed and whether retrying helps.
+- **API-safe taxonomy**: finance resolver input and internal failures are
+  normalized to GraphQL-safe categories: `validation`, `auth`, `upstream`, and
+  `internal`, with non-sensitive messages.
+- **Health**: `GET /health` is a liveness probe; `GET /ready` calls each
+  connector's health check and returns `503` when any upstream is degraded.
+
+### Caching
+
+Upstream reads go through a TTL cache selected by `FINANCE_CACHE_STORE`
+(`src/cache/index.js`):
+
+- `memory` (default): in-process, fastest, cleared on restart.
+- `file`: the same TTL semantics mirrored to `FINANCE_CACHE_FILE`, so a
+  restarted process serves warm upstream data instead of refetching everything.
+- `shared`: optional provider loaded from `FINANCE_CACHE_SHARED_MODULE`. The
+  module must export `createSharedCacheStore()` returning a store with
+  `get(key)`, `set(key, value, ttlMs)`, and `clear()` methods (Redis-like
+  adapters can implement this contract). If loading fails, the service logs a
+  warning and falls back to `memory`.
+
+Concurrent resolvers asking for the same key share one in-flight request, and
+payloads containing upstream errors are never cached so a transient outage is
+not pinned for the whole TTL.
+
+Follow-up production tasks:
+
+- Move from offset pagination to cursor pagination if upstream APIs expose
+  stable cursors.
+
 ## Notes
 
 Data lives in memory only, so every restart resets the service to its seed data
 (two users and two posts). Swapping `src/data/store.js` for a database-backed
 implementation is enough to persist data — the resolvers receive the store through
 the GraphQL context.
+
+## Security and license
+
+Report vulnerabilities as described in [SECURITY.md](SECURITY.md). This project
+is licensed under the [Apache License 2.0](LICENSE).
