@@ -3,7 +3,7 @@ export const backendSamples = [
     language: 'JavaScript',
     framework: 'Apollo Server + Express',
     code: `import { ApolloServer } from '@apollo/server'
-import { expressMiddleware } from '@apollo/server/express4'
+import { expressMiddleware } from '@as-integrations/express5'
 
 const typeDefs = \`type Query { hello: String! }\`
 const resolvers = { Query: { hello: () => 'Hello from Node.js' } }

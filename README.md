@@ -47,7 +47,7 @@ Apollo Sandbox, or jump to [Example queries](#example-queries).
 ## Stack
 
 - [Node.js](https://nodejs.org/) 20+ (ES modules)
-- [Apollo Server 5](https://www.apollographql.com/docs/apollo-server/) on [Express 4](https://expressjs.com/) via `@as-integrations/express4`
+- [Apollo Server 5](https://www.apollographql.com/docs/apollo-server/) on [Express 5](https://expressjs.com/) via `@as-integrations/express5`
 - [graphql-js](https://github.com/graphql/graphql-js)
 - Tests with the built-in `node:test` runner
 
