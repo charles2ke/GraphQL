@@ -39,6 +39,7 @@ Apollo Sandbox, or jump to [Example queries](#example-queries).
 - [API](#api)
 - [Streaming](#streaming)
 - [CORS](#cors)
+- [Hardening](#hardening)
 - [Excel export](#excel-export)
 - [Finance cluster integration](#finance-cluster-integration)
 - [Notes](#notes)
@@ -55,20 +56,21 @@ Apollo Sandbox, or jump to [Example queries](#example-queries).
 
 ```
 src/
-  index.js         # HTTP bootstrap: Express app + /graphql, /export, /graphql/stream
+  index.js         # Process entry point: listens and shuts down gracefully on SIGTERM/SIGINT
+  app.js           # Express wiring (probes, /metrics, /export, /graphql/stream, /graphql) and signal handling
   server.js        # Apollo Server factory (reused by the tests)
   schema.js        # GraphQL type definitions and executable schema factory
   resolvers.js     # Query / Mutation / Subscription / field resolvers
   cache/index.js   # Pluggable TTL cache (memory, file, shared provider)
-  config/          # Environment-driven finance and CORS configuration
+  config/          # Environment-driven server, finance, and CORS configuration
   connectors/      # OpenTrading, Portfolio-Watcher, tax-break adapters + HTTP client
   data/store.js    # In-memory data store with seed data
   domain/finance.js # Canonical finance models and normalization helpers
   export/          # Excel (.xlsx) writer, dataset registry, and /export routes
-  observability/   # Structured logging, metrics, error classification, Apollo plugin
+  observability/   # Structured logging, metrics, request IDs, error classification, Apollo plugin
   services/financeService.js # Finance aggregation, caching, and error handling
   streaming/       # In-process pub/sub and the SSE streaming endpoint
-  validation/financeArgs.js  # Shared finance argument validation
+  validation/      # User/post and finance argument validation, query depth limit
 test/
   graphql.test.js      # API tests executed against the schema
   finance.test.js      # Finance service, filtering, and pagination tests
@@ -77,13 +79,17 @@ test/
   export.test.js       # Excel export writer, dataset, and route tests
   observability.test.js # Logging, metrics, and error classification tests
   resilience.test.js   # Timeout, retry, and partial-failure tests
+  server.test.js       # Depth limit, introspection, request IDs, and graceful shutdown
   streaming.test.js    # Pub/sub and Server-Sent Events streaming tests
+  website-examples.test.js # Runs every API Explorer example against the real schema
 website/
   src/App.jsx      # Learning site: primer, tips, API Explorer
+  src/explorerExamples.js # API Explorer example operations and schema field list
+  src/graphqlClient.js    # Dependency-free HTTP and SSE client used by the Explorer
   src/backendSamples.js  # GraphQL server samples in 10 backend languages
   vite.config.js   # Vite config (GitHub Pages base path + /graphql dev proxy)
 .github/workflows/
-  ci.yml           # Backend tests plus website lint/build on push and PRs
+  ci.yml           # Backend tests plus website lint/test/build on push and PRs
   deploy-pages.yml # Builds website/ and publishes it to GitHub Pages
 ```
 
@@ -107,7 +113,9 @@ environment variable):
 - Streaming (SSE) endpoint: <http://localhost:4000/graphql/stream>
 
 Opening the GraphQL endpoint in a browser loads the Apollo Sandbox, where you can
-explore the schema and run the operations below.
+explore the schema and run the operations below. Stop the server with Ctrl+C or
+`SIGTERM`; it finishes in-flight requests before exiting (see
+[Hardening](#hardening)).
 
 ## Learning website
 
@@ -132,9 +140,22 @@ npm run dev
 
 Keep the API server running on port `4000`, then open the URL printed by Vite
 (normally <http://localhost:5173>). The API Explorer is available at
-`/#explorer`. During development, Vite proxies `/graphql` requests to the local
-API. To target a different API, start Vite with `VITE_GRAPHQL_URL` set to its
-GraphQL endpoint.
+`/#explorer`. During development, Vite proxies `/graphql` (including
+`/graphql/stream`) to the local API. To target a different API, start Vite with
+`VITE_GRAPHQL_URL` set to its GraphQL endpoint; subscriptions then use
+`$VITE_GRAPHQL_URL/stream`.
+
+The API Explorer offers:
+
+- Ready-made examples for users and posts (search, pagination, create, update,
+  delete), the finance queries, and subscriptions, plus the full list of root
+  fields and their arguments.
+- A **Variables (JSON)** editor; invalid JSON is reported before anything is sent.
+- **Subscriptions** streamed live over `/graphql/stream` (Server-Sent Events) with
+  an event counter and a **Stop** button. Run a matching mutation in another tab
+  to see events arrive.
+- <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd> to run, plus the HTTP status,
+  duration, and `X-Request-Id` of every response for correlating with server logs.
 
 To build the same static site that GitHub Pages deploys:
 
@@ -143,13 +164,19 @@ cd website
 GITHUB_PAGES=true npm run build   # output in website/dist
 npm run preview                   # serve the production build locally
 npm run lint                      # Oxlint
+npm test                          # node:test unit tests for the Explorer client
 ```
 
 ## Tests
 
 ```bash
-npm test
+npm test                  # backend suite (node:test), incl. the Explorer examples contract
+cd website && npm test    # website unit tests (GraphQL HTTP/SSE client)
 ```
+
+The root suite also runs every API Explorer example against the real schema
+and checks the Explorer's field list against it, so the website cannot drift
+from the API.
 
 ## Continuous integration
 
@@ -157,9 +184,9 @@ The [`CI`](.github/workflows/ci.yml) workflow runs on every push to `main`, on
 every pull request, and on demand from the Actions tab. It has two jobs:
 
 - **Backend tests** — `npm ci` then `npm test` (node:test) at the repository root.
-- **Website lint and build** — `npm ci`, `npm run lint` (Oxlint) and
-  `GITHUB_PAGES=true npm run build` inside `website/`, matching what the Pages
-  deployment builds.
+- **Website lint and build** — `npm ci`, `npm run lint` (Oxlint), `npm test`
+  and `GITHUB_PAGES=true npm run build` inside `website/`, matching what the
+  Pages deployment builds.
 
 Runs are grouped per branch and superseded runs are cancelled automatically.
 
@@ -167,21 +194,45 @@ Runs are grouped per branch and superseded runs are cancelled automatically.
 
 | Type | Operation | Description |
 | --- | --- | --- |
-| Query | `users` | List all users |
+| Query | `users(search, limit, offset)` | List users, optionally searched by name/email (case-insensitive) and paged |
 | Query | `user(id: ID!)` | Fetch a single user, `null` when unknown |
-| Query | `posts` | List all posts |
+| Query | `posts(search, authorId, limit, offset)` | List posts, optionally by author and searched by title/content, paged |
 | Query | `post(id: ID!)` | Fetch a single post, `null` when unknown |
 | Query | `portfolioOverview(accountId, from, to, limit, offset)` | Fetch finance accounts, positions, snapshots, and P/L |
 | Query | `tradeHistory(accountId, symbol, side, status, from, to, limit, offset)` | Fetch trades/orders enriched with tax events |
 | Query | `taxEstimate(taxYear, accountId, symbol, from, to, limit, offset)` | Estimate tax from tax-relevant trading activity |
 | Mutation | `createUser(name, email)` | Create a user |
+| Mutation | `updateUser(id, name, email)` | Change a user's name and/or email |
+| Mutation | `deleteUser(id)` | Delete a user who has no posts; returns the deleted user |
 | Mutation | `createPost(title, content, authorId)` | Create a post for an existing user |
-| Subscription | `userCreated` | Streams every newly created user |
-| Subscription | `postCreated(authorId)` | Streams new posts, optionally for one author |
+| Mutation | `updatePost(id, title, content)` | Change a post's title and/or content |
+| Mutation | `deletePost(id)` | Delete a post; returns the deleted post |
+| Subscription | `userCreated` / `userUpdated` / `userDeleted` | Streams every created, updated, or deleted user |
+| Subscription | `postCreated(authorId)` / `postUpdated(authorId)` / `postDeleted(authorId)` | Streams post changes, optionally for one author |
 
 The finance operations are documented in detail under
 [Finance cluster integration](#finance-cluster-integration); subscriptions are
 delivered over SSE, see [Streaming](#streaming).
+
+`users` and `posts` return every match when `limit` is omitted; `limit` and
+`offset` must be non-negative integers. Mutation input is validated and every
+problem is reported at once:
+
+- Names, emails, and titles are trimmed and must not be blank; post content
+  must not be blank either but keeps its formatting. Maximum lengths: name 100,
+  email 254, title 200, content 10,000 characters.
+- Emails must look like `local@domain.tld` and are unique, ignoring case.
+- `updateUser` and `updatePost` change only the fields you pass; at least one is
+  required.
+- IDs are never reused after a delete.
+
+Errors carry a stable `extensions.code`:
+
+| Code | When |
+| --- | --- |
+| `BAD_USER_INPUT` | Invalid arguments; `extensions.details` lists every issue. Also returned for an unknown `authorId` in `createPost` |
+| `NOT_FOUND` | `update*` / `delete*` with an unknown `id` |
+| `CONFLICT` | Email already used by another user, or deleting a user who still has posts (delete the posts first) |
 
 ### Example queries
 
@@ -228,6 +279,22 @@ query Posts {
 }
 ```
 
+Search and page through users with variables:
+
+```graphql
+query SearchUsers($search: String, $limit: Int, $offset: Int) {
+  users(search: $search, limit: $limit, offset: $offset) {
+    id
+    name
+    email
+  }
+}
+```
+
+```json
+{ "search": "ada", "limit": 5, "offset": 0 }
+```
+
 ### Example mutations
 
 ```graphql
@@ -252,6 +319,25 @@ mutation CreatePost {
 ```
 
 Creating a post for an unknown `authorId` returns a `BAD_USER_INPUT` error.
+
+```graphql
+mutation UpdateUser {
+  updateUser(id: "1", name: "Augusta Ada King") {
+    id
+    name
+    email
+  }
+}
+```
+
+```graphql
+mutation DeletePost {
+  deletePost(id: "2") {
+    id
+    title
+  }
+}
+```
 
 ### With curl
 
@@ -299,7 +385,11 @@ GraphQL response body, and the stream finishes with `event: complete`.
 Queries sent to `/graphql/stream` produce exactly one `next` frame followed
 by `complete`. Comment frames (`: ping`) act as heartbeats so idle
 connections survive proxies, and a subscription is torn down as soon as the
-client disconnects.
+client disconnects. Operations are validated (including the
+[depth limit](#hardening)) before a stream opens, so an invalid operation gets a
+regular JSON error response instead. During a graceful shutdown, open streams
+end without a `complete` frame and new stream requests receive `503`, so
+clients know to reconnect.
 
 Events are dispatched by an in-process pub/sub (`src/streaming/pubsub.js`).
 It is intentionally dependency-free, which means subscribers only see events
@@ -314,7 +404,7 @@ origin allow-list** — a wildcard (`*`) `Access-Control-Allow-Origin` is never
 emitted — so that only trusted front-ends can read responses cross-origin.
 
 The allow-list is built in `src/config/cors.js` from the
-`CORS_ALLOWED_ORIGINS` environment variable and applied by `src/index.js`:
+`CORS_ALLOWED_ORIGINS` environment variable and applied by `src/app.js`:
 
 ```bash
 CORS_ALLOWED_ORIGINS='https://app.example.com,https://admin.example.com' npm start
@@ -332,7 +422,32 @@ CORS headers, so the browser blocks the response. When
 `CORS_ALLOWED_ORIGINS` is unset every cross-origin read is denied — this is
 the secure default, so the variable must be set for browser front-ends that
 live on a different origin. Requests without an `Origin` header (curl,
-server-to-server calls) are unaffected.
+server-to-server calls) are unaffected. Allowed origins can also read the
+`X-Request-Id` response header.
+
+## Hardening
+
+- **Query depth limit** — operations nested deeper than `GRAPHQL_MAX_DEPTH`
+  fields (default `10`) are rejected during validation, before any resolver
+  runs, on both `/graphql` and `/graphql/stream` (HTTP `400`). Fragments are
+  expanded when measuring depth; introspection fields (`__schema`, `__type`)
+  are not counted, so Apollo Sandbox keeps working.
+- **Introspection** — disabled on both endpoints when `NODE_ENV=production`.
+  Apollo Server also omits stack traces from error responses in that mode.
+- **Request IDs** — every response carries an `X-Request-Id` header. A
+  well-formed incoming `X-Request-Id` (1–128 letters, digits, `_`, `.`, `:` or
+  `-`, e.g. set by a gateway) is reused; anything else is replaced with a
+  random UUID. The ID is added to the per-operation log line and to the
+  request-scoped logger passed to resolvers, so an ID reported by a client can
+  be found in the logs.
+- **Graceful shutdown** — on `SIGTERM` or `SIGINT` the server stops accepting
+  connections and ends open SSE streams; stream requests that still arrive
+  receive `503 SERVICE_UNAVAILABLE`. In-flight requests get up to
+  `SHUTDOWN_TIMEOUT_MS` (default `10000`) to finish before the remaining sockets
+  are closed, then the finance cache is flushed. A second signal exits
+  immediately with code `1`. Repeats within one second of the first signal are
+  ignored, because a single Ctrl+C can be delivered more than once (for
+  example under `npm run dev`, where `node --watch` forwards it again).
 
 ## Excel export
 
@@ -381,8 +496,10 @@ without changing the GraphQL schema.
 ### Configuration
 
 The running server loads connector settings from the environment via
-`src/config/finance.js` (the last three rows are read elsewhere but listed here
-for a single view of the service configuration):
+`src/config/finance.js`. The table also lists the variables read by
+`src/config/server.js` (`PORT`, `GRAPHQL_MAX_DEPTH`, `SHUTDOWN_TIMEOUT_MS`,
+`NODE_ENV`), the logger (`LOG_LEVEL`), and `src/config/cors.js`
+(`CORS_ALLOWED_ORIGINS`) for a single view of the service configuration:
 
 | Variable | Description | Default |
 | --- | --- | --- |
@@ -403,6 +520,9 @@ for a single view of the service configuration):
 | `FINANCE_MAX_PAGE_SIZE` | Upper bound applied to any requested `limit` | `100` |
 | `LOG_LEVEL` | Structured log level (`debug`/`info`/`warn`/`error`) | `info` |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated list of origins allowed to read `/graphql`, `/graphql/stream`, and `/export` cross-origin | empty (all cross-origin reads denied) |
+| `GRAPHQL_MAX_DEPTH` | Maximum field nesting depth accepted on `/graphql` and `/graphql/stream` | `10` |
+| `SHUTDOWN_TIMEOUT_MS` | How long in-flight requests may run after `SIGTERM`/`SIGINT` before their sockets are closed | `10000` |
+| `NODE_ENV` | `production` disables schema introspection (and Apollo's error stack traces) | unset |
 
 Each connector endpoint that is **not** a `mock://` URL is served by the
 production HTTP client in `src/connectors/httpClient.js`, which adds bearer
@@ -506,7 +626,8 @@ query RecentSells {
 
 - **Structured logs**: JSON lines from `src/observability/logger.js`, with
   credential-like fields redacted. One line per GraphQL operation includes the
-  operation name, duration, outcome, and error codes.
+  operation name, duration, outcome, error codes, and the request's
+  `requestId` (see [Hardening](#hardening)).
 - **Metrics**: `src/observability/metrics.js` records GraphQL operation
   counts/latency, connector call counts/latency per source and operation,
   upstream retry failures, classified failures
@@ -536,8 +657,9 @@ Upstream reads go through a TTL cache selected by `FINANCE_CACHE_STORE`
 - `shared`: optional provider loaded from `FINANCE_CACHE_SHARED_MODULE`. The
   module must export `createSharedCacheStore()` returning a store with
   `get(key)`, `set(key, value, ttlMs)`, and `clear()` methods (Redis-like
-  adapters can implement this contract). If loading fails, the service logs a
-  warning and falls back to `memory`.
+  adapters can implement this contract), plus optional `flush()` and `close()`
+  methods that are awaited during graceful shutdown. If loading fails, the
+  service logs a warning and falls back to `memory`.
 
 Concurrent resolvers asking for the same key share one in-flight request, and
 payloads containing upstream errors are never cached so a transient outage is

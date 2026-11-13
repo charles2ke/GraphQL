@@ -9,14 +9,17 @@ const server = createApolloServer();
 let store;
 let finance;
 
-/** Executes an operation against the schema with a fresh in-memory store. */
+/**
+ * Executes an operation against the schema with a fresh in-memory store and
+ * returns the result as a client would receive it (JSON, plain objects).
+ */
 async function execute(query, variables) {
   const response = await server.executeOperation(
     { query, variables },
     { contextValue: { store, finance } }
   );
 
-  return response.body.singleResult;
+  return JSON.parse(JSON.stringify(response.body.singleResult));
 }
 
 describe('GraphQL API', () => {
@@ -91,6 +94,79 @@ describe('GraphQL API', () => {
     assert.equal(result.errors.length, 1);
     assert.equal(result.errors[0].extensions.code, 'BAD_USER_INPUT');
     assert.equal(store.listPosts().length, 2);
+  });
+
+  it('searches and paginates users and posts', async () => {
+    const byName = await execute('{ users(search: " TUR ") { name } }');
+    assert.deepEqual(byName.data.users, [{ name: 'Alan Turing' }]);
+
+    const paged = await execute('{ users(search: "EXAMPLE.com", limit: 1, offset: 1) { id } }');
+    assert.deepEqual(paged.data.users, [{ id: '2' }]);
+
+    const posts = await execute('{ byAuthor: posts(authorId: "2") { id } byText: posts(search: "graphql") { id } beyond: posts(offset: 5) { id } }');
+    assert.deepEqual(posts.data, { byAuthor: [{ id: '2' }], byText: [{ id: '1' }], beyond: [] });
+
+    const invalid = await execute('{ posts(offset: -1) { id } }');
+    assert.equal(invalid.errors[0].extensions.code, 'BAD_USER_INPUT');
+    assert.equal(invalid.errors[0].extensions.category, 'validation');
+  });
+
+  it('validates user and post input and keeps emails unique', async () => {
+    const invalid = await execute('mutation { createUser(name: "  ", email: "not-an-email") { id } }');
+    assert.equal(invalid.errors[0].extensions.code, 'BAD_USER_INPUT');
+    assert.deepEqual(invalid.errors[0].extensions.details, ['name must not be empty', 'email must be a valid email address']);
+
+    const tooLong = await execute('mutation ($title: String!) { createPost(title: $title, content: "Body", authorId: "1") { id } }', {
+      title: 'x'.repeat(201),
+    });
+    assert.deepEqual(tooLong.errors[0].extensions.details, ['title must be at most 200 characters']);
+
+    const duplicate = await execute('mutation { createUser(name: "Ada Again", email: " ADA@example.com ") { id } }');
+    assert.equal(duplicate.errors[0].extensions.code, 'CONFLICT');
+    assert.equal(store.listUsers().length, 2);
+    assert.equal(store.listPosts().length, 2);
+  });
+
+  it('updates only the provided user and post fields', async () => {
+    const renamed = await execute('mutation { updateUser(id: "1", name: " Ada King ") { name email } }');
+    assert.deepEqual(renamed.data.updateUser, { name: 'Ada King', email: 'ada@example.com' });
+
+    const ownEmail = await execute('mutation { updateUser(id: "1", email: "ADA@example.com") { email } }');
+    assert.equal(ownEmail.data.updateUser.email, 'ADA@example.com');
+
+    const takenEmail = await execute('mutation { updateUser(id: "1", email: "alan@example.com") { id } }');
+    assert.equal(takenEmail.errors[0].extensions.code, 'CONFLICT');
+
+    const nothing = await execute('mutation { updateUser(id: "1", name: null) { id } }');
+    assert.deepEqual(nothing.errors[0].extensions.details, ['provide at least one of name or email']);
+
+    const post = await execute('mutation { updatePost(id: "2", title: "Computable numbers") { title content } }');
+    assert.deepEqual(post.data.updatePost, { title: 'Computable numbers', content: 'Notes about machines that compute.' });
+
+    const unknownUser = await execute('mutation { updateUser(id: "404", name: "Nobody") { id } }');
+    assert.equal(unknownUser.errors[0].extensions.code, 'NOT_FOUND');
+    const unknownPost = await execute('mutation { updatePost(id: "404", content: "Body") { id } }');
+    assert.equal(unknownPost.errors[0].extensions.code, 'NOT_FOUND');
+  });
+
+  it('deletes posts and refuses to delete users who still have posts', async () => {
+    const blocked = await execute('mutation { deleteUser(id: "1") { id } }');
+    assert.equal(blocked.errors[0].extensions.code, 'CONFLICT');
+    assert.equal(store.getUser('1').name, 'Ada Lovelace');
+
+    const post = await execute('mutation { deletePost(id: "1") { id title author { name } } }');
+    assert.deepEqual(post.data.deletePost, { id: '1', title: 'Hello GraphQL', author: { name: 'Ada Lovelace' } });
+
+    const user = await execute('mutation { deleteUser(id: "1") { id name posts { id } } }');
+    assert.deepEqual(user.data.deleteUser, { id: '1', name: 'Ada Lovelace', posts: [] });
+    assert.equal((await execute('{ user(id: "1") { id } }')).data.user, null);
+
+    const again = await execute('mutation { deletePost(id: "1") { id } }');
+    assert.equal(again.errors[0].extensions.code, 'NOT_FOUND');
+
+    // Ids are never reused after a delete.
+    const created = await execute('mutation { createUser(name: "Grace Hopper", email: "grace@example.com") { id } }');
+    assert.equal(created.data.createUser.id, '3');
   });
 
   it('returns a cross-source portfolio overview with positions and P/L', async () => {

@@ -1,5 +1,5 @@
 import express from 'express';
-import { GraphQLError, execute, getOperationAST, parse, subscribe, validate } from 'graphql';
+import { GraphQLError, execute, getOperationAST, parse, specifiedRules, subscribe, validate } from 'graphql';
 
 import { createSchema } from '../schema.js';
 
@@ -73,6 +73,10 @@ function waitForDrain(res, signal) {
  * result and finish with `complete`; queries and mutations are executed once
  * and streamed as a single `next` + `complete` pair, so a single client
  * transport covers every operation type.
+ *
+ * `validationRules` run in addition to the spec rules (e.g. the depth limit).
+ * When `shutdownSignal` aborts, open streams end without a `complete` event,
+ * telling clients to reconnect elsewhere, and new requests get a 503.
  */
 export function createStreamRouter({
   schema = createSchema(),
@@ -80,10 +84,30 @@ export function createStreamRouter({
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
   logger,
   metrics,
+  validationRules = [],
+  shutdownSignal,
 } = {}) {
   const router = express.Router();
+  const rules = [...specifiedRules, ...validationRules];
+  const activeStreams = new Set();
+
+  // One listener for the whole router instead of one per request.
+  shutdownSignal?.addEventListener(
+    'abort',
+    () => {
+      for (const controller of activeStreams) controller.abort();
+    },
+    { once: true }
+  );
 
   async function handle(req, res) {
+    if (shutdownSignal?.aborted) {
+      res.status(503).json({
+        errors: [{ message: 'Server is shutting down.', extensions: { code: 'SERVICE_UNAVAILABLE' } }],
+      });
+      return;
+    }
+
     let operation;
     try {
       operation = readOperation(req);
@@ -100,7 +124,7 @@ export function createStreamRouter({
       return;
     }
 
-    const validationErrors = validate(schema, document);
+    const validationErrors = validate(schema, document, rules);
     if (validationErrors.length > 0) {
       res.status(400).json({ errors: validationErrors.map((error) => ({ message: error.message })) });
       return;
@@ -118,9 +142,14 @@ export function createStreamRouter({
       return;
     }
 
-    // Aborts in-flight subscriptions as soon as the client goes away.
+    // Aborts in-flight subscriptions as soon as the client goes away or the
+    // server starts shutting down.
     const controller = new AbortController();
-    res.on('close', () => controller.abort());
+    activeStreams.add(controller);
+    res.on('close', () => {
+      activeStreams.delete(controller);
+      controller.abort();
+    });
 
     const args = {
       schema,
@@ -174,7 +203,7 @@ export function createStreamRouter({
       }
       if (!controller.signal.aborted) writeEvent(res, 'complete');
     } catch (error) {
-      logger?.error?.('graphql stream failed', { error: error?.message ?? String(error) });
+      logger?.error?.('graphql stream failed', { requestId: req.requestId, error: error?.message ?? String(error) });
       if (!controller.signal.aborted) {
         writeEvent(res, 'next', { errors: [{ message: 'Subscription failed.' }] });
         writeEvent(res, 'complete');

@@ -12,7 +12,7 @@ import { createPubSub, TOPICS } from '../src/streaming/pubsub.js';
 import { createStreamRouter } from '../src/streaming/sseRouter.js';
 
 /** Starts the streaming endpoint on an ephemeral port and returns its base URL. */
-async function startServer() {
+async function startServer(routerOptions = {}) {
   const store = createStore();
   const pubsub = createPubSub();
   const app = express();
@@ -25,6 +25,7 @@ async function startServer() {
       schema: createSchema(),
       heartbeatMs: 0,
       contextValue: () => ({ store, finance: createFinanceService(), pubsub }),
+      ...routerOptions,
     })
   );
 
@@ -36,7 +37,13 @@ async function startServer() {
     url: `http://127.0.0.1:${port}/graphql/stream`,
     store,
     pubsub,
-    close: () => new Promise((resolve) => server.close(resolve)),
+    // Open SSE responses would keep server.close() waiting forever when an
+    // assertion fails before the test aborts its subscriptions.
+    close: () =>
+      new Promise((resolve) => {
+        server.close(resolve);
+        server.closeAllConnections();
+      }),
   };
 }
 
@@ -118,6 +125,58 @@ describe('GraphQL streaming (SSE)', () => {
     }
   });
 
+  it('streams update and delete events published by mutations', async () => {
+    const app = await startServer();
+
+    /** Opens an SSE subscription and returns its frame iterator. */
+    async function open(query) {
+      const controller = new AbortController();
+      const response = await fetch(`${app.url}?query=${encodeURIComponent(query)}`, { signal: controller.signal });
+      return { controller, events: readEvents(response, controller) };
+    }
+
+    /** Runs a one-shot mutation through the same endpoint and returns its result. */
+    async function mutate(query) {
+      const response = await fetch(app.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+      const frames = [];
+      for await (const frame of readEvents(response)) frames.push(frame);
+      return frames[0].data;
+    }
+
+    try {
+      const updates = await open('subscription { userUpdated { id name } }');
+      const deletions = await open('subscription { postDeleted(authorId: "2") { id title author { name } } }');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      await mutate('mutation { updateUser(id: "2", name: "Alan M. Turing") { id } }');
+      // Post 1 belongs to author 1, so only the second deletion matches the filter.
+      await mutate('mutation { deletePost(id: "1") { id } }');
+      // The author is deleted too before the event is delivered; the event must
+      // still resolve its non-null author as it was when the post was deleted.
+      const deleted = await mutate('mutation { deletePost(id: "2") { id } deleteUser(id: "2") { id } }');
+      assert.equal(deleted.errors, undefined);
+
+      const updated = await updates.events.next();
+      assert.deepEqual(updated.value.data.data.userUpdated, { id: '2', name: 'Alan M. Turing' });
+
+      const removed = await deletions.events.next();
+      assert.deepEqual(removed.value.data.data.postDeleted, {
+        id: '2',
+        title: 'On computable numbers',
+        author: { name: 'Alan M. Turing' },
+      });
+
+      updates.controller.abort();
+      deletions.controller.abort();
+    } finally {
+      await app.close();
+    }
+  });
+
   it('streams a single result for queries and mutations', async () => {
     const app = await startServer();
 
@@ -169,6 +228,18 @@ describe('GraphQL streaming (SSE)', () => {
       assert.equal(invalid.status, 400);
       const body = await invalid.json();
       assert.ok(body.errors[0].message.includes('nope'));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('answers 503 to new operations once shutdown has started', async () => {
+    const app = await startServer({ shutdownSignal: AbortSignal.abort() });
+
+    try {
+      const response = await fetch(`${app.url}?query=${encodeURIComponent('{ __typename }')}`);
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).errors[0].extensions.code, 'SERVICE_UNAVAILABLE');
     } finally {
       await app.close();
     }

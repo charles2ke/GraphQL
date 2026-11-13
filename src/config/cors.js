@@ -29,5 +29,7 @@ export function loadCorsOptions(env = process.env) {
       callback(null, false);
     },
     credentials: true,
+    // Lets browser clients read the correlation id for support/debugging.
+    exposedHeaders: ['X-Request-Id'],
   };
 }

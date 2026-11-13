@@ -209,6 +209,12 @@ export function createFinanceService({
         upstreams: checks,
       };
     },
+
+    /** Flushes pending persistent-cache writes and releases cache resources on shutdown. */
+    async close() {
+      await cache.flush?.();
+      await cache.close?.();
+    },
   };
 }
 
