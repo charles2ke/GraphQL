@@ -16,7 +16,12 @@ function redact(fields) {
  * Minimal structured (JSON lines) logger. Keeping it dependency-free makes the
  * output easy to ship to any log aggregator without extra libraries.
  */
-export function createLogger({ level = process.env.LOG_LEVEL ?? 'info', write = console.log, name = 'graphql-demo-service' } = {}) {
+export function createLogger({
+  level = process.env.LOG_LEVEL ?? 'info',
+  write = console.log,
+  name = 'graphql-demo-service',
+  fields: baseFields = {},
+} = {}) {
   const threshold = LEVELS[level] ?? LEVELS.info;
 
   function log(logLevel, message, fields = {}) {
@@ -27,7 +32,7 @@ export function createLogger({ level = process.env.LOG_LEVEL ?? 'info', write = 
         time: new Date().toISOString(),
         service: name,
         message,
-        ...redact(fields),
+        ...redact({ ...baseFields, ...fields }),
       })
     );
   }
@@ -38,6 +43,8 @@ export function createLogger({ level = process.env.LOG_LEVEL ?? 'info', write = 
     info: (message, fields) => log('info', message, fields),
     warn: (message, fields) => log('warn', message, fields),
     error: (message, fields) => log('error', message, fields),
+    /** Returns a logger that adds `fields` (e.g. a request id) to every entry. */
+    child: (fields) => createLogger({ level, write, name, fields: { ...baseFields, ...fields } }),
   };
 }
 

@@ -12,6 +12,18 @@ export function isIsoDate(value) {
   return Number.isFinite(calendarDate.getTime()) && calendarDate.toISOString().startsWith(match[1]) && Number.isFinite(new Date(value).getTime());
 }
 
+/** Shared offset-pagination checks used by finance and user/post lists. */
+export function validatePagination({ limit, offset } = {}) {
+  const issues = [];
+  if (limit !== undefined && limit !== null && (!isGraphQLInt(limit) || limit < 0)) {
+    issues.push('limit must be a non-negative integer');
+  }
+  if (offset !== undefined && offset !== null && (!isGraphQLInt(offset) || offset < 0)) {
+    issues.push('offset must be a non-negative integer');
+  }
+  return issues;
+}
+
 export function validateFinanceArgs(args, { requireTaxYear = false } = {}) {
   const issues = [];
   if (args.from !== undefined && args.from !== null && !isIsoDate(args.from)) issues.push('from must be a valid ISO-8601 date');
@@ -19,12 +31,7 @@ export function validateFinanceArgs(args, { requireTaxYear = false } = {}) {
   if (isIsoDate(args.from) && isIsoDate(args.to) && new Date(args.from).getTime() > new Date(args.to).getTime()) {
     issues.push('from must be earlier than or equal to to');
   }
-  if (args.limit !== undefined && args.limit !== null && (!isGraphQLInt(args.limit) || args.limit < 0)) {
-    issues.push('limit must be a non-negative integer');
-  }
-  if (args.offset !== undefined && args.offset !== null && (!isGraphQLInt(args.offset) || args.offset < 0)) {
-    issues.push('offset must be a non-negative integer');
-  }
+  issues.push(...validatePagination(args));
   if (requireTaxYear && (args.taxYear === undefined || args.taxYear === null)) {
     issues.push('taxYear query parameter is required');
   } else if (requireTaxYear && (!isGraphQLInt(args.taxYear) || args.taxYear < 1900 || args.taxYear > 9999)) {

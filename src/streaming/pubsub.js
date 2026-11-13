@@ -97,7 +97,11 @@ export function createPubSub({ maxQueueSize = DEFAULT_MAX_QUEUE } = {}) {
 /** Topics published by the demo resolvers. */
 export const TOPICS = {
   USER_CREATED: 'USER_CREATED',
+  USER_UPDATED: 'USER_UPDATED',
+  USER_DELETED: 'USER_DELETED',
   POST_CREATED: 'POST_CREATED',
+  POST_UPDATED: 'POST_UPDATED',
+  POST_DELETED: 'POST_DELETED',
 };
 
 /** Default pub/sub instance shared by the running server. */

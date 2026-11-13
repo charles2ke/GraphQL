@@ -1,18 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { expressMiddleware } from '@as-integrations/express5';
 import cors from 'cors';
 import express from 'express';
 
+import { createApp } from '../src/app.js';
 import { loadCorsOptions, parseAllowedOrigins } from '../src/config/cors.js';
+import { loadServerConfig } from '../src/config/server.js';
 import { createStore } from '../src/data/store.js';
-import { createExportRouter } from '../src/export/router.js';
-import { createSchema } from '../src/schema.js';
+import { createLogger } from '../src/observability/logger.js';
 import { createFinanceService } from '../src/services/financeService.js';
-import { createApolloServer } from '../src/server.js';
 import { createPubSub } from '../src/streaming/pubsub.js';
-import { createStreamRouter } from '../src/streaming/sseRouter.js';
 
 /** Starts a throwaway app guarded by the allow-list CORS middleware. */
 async function withServer(env, run) {
@@ -31,41 +29,23 @@ async function withServer(env, run) {
   }
 }
 
-/** Starts the actual /export, /graphql/stream, and /graphql mounts wired the same way as src/index.js. */
+/** Starts the actual /export, /graphql/stream, and /graphql mounts from src/app.js. */
 async function withApp(env, run) {
-  const store = createStore();
-  const finance = createFinanceService();
-  const pubsub = createPubSub();
-  const schema = createSchema();
-  const apolloServer = createApolloServer({ schema });
-  await apolloServer.start();
-
-  const app = express();
-  const corsOptions = loadCorsOptions(env);
-
-  app.use('/export', cors(corsOptions), createExportRouter({ store, finance }));
-  app.use(
-    '/graphql/stream',
-    cors(corsOptions),
-    express.json(),
-    createStreamRouter({ schema, contextValue: () => ({ store, finance, pubsub }) })
-  );
-  app.use(
-    '/graphql',
-    cors(corsOptions),
-    express.json(),
-    expressMiddleware(apolloServer, { context: async () => ({ store, finance, pubsub }) })
-  );
-
-  const server = await new Promise((resolve) => {
-    const listener = app.listen(0, () => resolve(listener));
+  const { httpServer, shutdown } = await createApp({
+    config: loadServerConfig({}),
+    corsOptions: loadCorsOptions(env),
+    store: createStore(),
+    finance: createFinanceService(),
+    logger: createLogger({ write: () => {} }),
+    pubsub: createPubSub(),
   });
-  const { port } = server.address();
+
+  await new Promise((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+  const { port } = httpServer.address();
   try {
     await run(`http://127.0.0.1:${port}`);
   } finally {
-    await new Promise((resolve) => server.close(resolve));
-    await apolloServer.stop();
+    await shutdown();
   }
 }
 
