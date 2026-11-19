@@ -164,12 +164,19 @@ export const typeDefs = /* GraphQL */ `
   }
 
   type Query {
-    "All users."
-    users: [User!]!
+    """
+    Users, optionally filtered by a case-insensitive search over name and
+    email, then paginated with limit/offset. Omitting limit returns every match.
+    """
+    users(search: String, limit: Int, offset: Int): [User!]!
     "A single user by id, or null when not found."
     user(id: ID!): User
-    "All posts."
-    posts: [Post!]!
+    """
+    Posts, optionally filtered by author and a case-insensitive search over
+    title and content, then paginated with limit/offset. Omitting limit
+    returns every match.
+    """
+    posts(search: String, authorId: ID, limit: Int, offset: Int): [Post!]!
     "A single post by id, or null when not found."
     post(id: ID!): Post
     """
@@ -208,17 +215,40 @@ export const typeDefs = /* GraphQL */ `
     ): TaxEstimateSummary!
   }
 
+  """
+  Errors use extensions.code: BAD_USER_INPUT (invalid arguments, details in
+  extensions.details), NOT_FOUND (unknown id), or CONFLICT (duplicate email, or
+  deleting a user who still has posts).
+  """
   type Mutation {
+    "Creates a user. The name must be non-blank and the email valid and unique (case-insensitive)."
     createUser(name: String!, email: String!): User!
+    "Updates the provided fields of a user; omitted fields are unchanged and at least one is required."
+    updateUser(id: ID!, name: String, email: String): User!
+    "Deletes a user that has no posts and returns the deleted user."
+    deleteUser(id: ID!): User!
+    "Creates a post for an existing author. Title and content must be non-blank."
     createPost(title: String!, content: String!, authorId: ID!): Post!
+    "Updates the provided fields of a post; omitted fields are unchanged and at least one is required."
+    updatePost(id: ID!, title: String, content: String): Post!
+    "Deletes a post and returns the deleted post."
+    deletePost(id: ID!): Post!
   }
 
   "Streaming operations delivered over Server-Sent Events at /graphql/stream."
   type Subscription {
     "Emitted whenever a user is created."
     userCreated: User!
+    "Emitted whenever a user is updated."
+    userUpdated: User!
+    "Emitted whenever a user is deleted, carrying the deleted user."
+    userDeleted: User!
     "Emitted whenever a post is created, optionally filtered by author."
     postCreated(authorId: ID): Post!
+    "Emitted whenever a post is updated, optionally filtered by author."
+    postUpdated(authorId: ID): Post!
+    "Emitted whenever a post is deleted, carrying the deleted post, optionally filtered by author."
+    postDeleted(authorId: ID): Post!
   }
 `;
 

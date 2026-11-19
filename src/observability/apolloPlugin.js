@@ -10,7 +10,10 @@ export function createObservabilityPlugin({ logger = defaultLogger, metrics = de
   return {
     async requestDidStart(requestContext) {
       const startedAt = Date.now();
-      const requestId = requestContext.request.http?.headers?.get?.('x-request-id') ?? undefined;
+      // Prefer the id assigned by the request-id middleware (exposed on the
+      // context); fall back to the raw header for other integrations.
+      const requestId =
+        requestContext.contextValue?.requestId ?? requestContext.request.http?.headers?.get?.('x-request-id') ?? undefined;
 
       return {
         async willSendResponse(context) {

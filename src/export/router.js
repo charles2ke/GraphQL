@@ -45,7 +45,7 @@ export function createExportRouter({ store, finance, logger, maxExportRows = DEF
     } catch (error) {
       const statusCode = error?.statusCode ?? 500;
       if (statusCode >= 500) {
-        logger?.error('export failed', { dataset: name, error: error?.message ?? String(error) });
+        logger?.error('export failed', { requestId: req.requestId, dataset: name, error: error?.message ?? String(error) });
       }
       res.status(statusCode).json({
         error: statusCode >= 500 ? 'export failed' : error.message,
